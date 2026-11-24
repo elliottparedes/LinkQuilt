@@ -4,7 +4,7 @@
  *
  * Node-only work (SECRET_KEY bootstrap, DB migrations) lives in
  * instrumentation-node.ts and is dynamically imported here so the Edge
- * instrumentation bundle never traces fs/sqlite/crypto.
+ * instrumentation bundle never traces fs/pg/crypto.
  *
  * @see instrumentation-node.ts for behavior details
  */

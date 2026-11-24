@@ -11,6 +11,7 @@
  * and can be compared directly, row for row.
  */
 import { describe, it, expect, vi } from "vitest";
+import { PRODUCT_FILE_PREFIX } from "@/lib/brand";
 import "./integration-setup";
 import { db, seedLink } from "./integration-setup";
 import { recordClick, getLinkStats, recordPageview } from "@/server/queries";
@@ -29,7 +30,7 @@ import { NextRequest } from "next/server";
 describe("export CSV variant fidelity (#81 E.95)", () => {
   it("every CSV variant cell equals the raw analytics_clicks.variant (labeled + unlabeled)", async () => {
     await db.delete(analyticsClicks);
-    const link = seedLink({ title: "Export fidelity", url: "https://example.com/x" });
+    const link = (await seedLink({ title: "Export fidelity", url: "https://example.com/x" }));
 
     // Deterministic mix across the six columns the route emits; referrer
     // kept null and fields comma-free so a plain split(",") is exact.
@@ -90,7 +91,7 @@ describe("export CSV variant fidelity (#81 E.95)", () => {
     // unlabeled open row the clicks-scoped stats deliberately omits.
     await db.delete(analyticsClicks);
     const title = "E103-window-story";
-    const link = seedLink({ title, url: "https://example.com/e103" });
+    const link = (await seedLink({ title, url: "https://example.com/e103" }));
 
     // In-window (fresh): 2 A, 1 B, 1 unlabeled click, 1 'open' event.
     const fresh = [
@@ -112,20 +113,18 @@ describe("export CSV variant fidelity (#81 E.95)", () => {
       { h: "e103-o-b1", v: "B" as const },
     ];
     for (const s of out) await recordClick(link.id, s.h, null, "click", s.v);
-    const outIds = db
+    const outIds = (await db
       .select({ id: analyticsClicks.id })
       .from(analyticsClicks)
-      .where(like(analyticsClicks.visitorHash, "e103-o-%"))
-      .all()
+      .where(like(analyticsClicks.visitorHash, "e103-o-%")))
       .map((r) => r.id);
     const stamp60 = new Date(Date.now() - 60 * 86_400_000)
       .toISOString()
       .slice(0, 19)
       .replace("T", " ");
-    db.update(analyticsClicks)
+    (await db.update(analyticsClicks)
       .set({ createdAt: stamp60 })
-      .where(inArray(analyticsClicks.id, outIds))
-      .run();
+      .where(inArray(analyticsClicks.id, outIds)));
 
     // Surface 1: the stats page's range-scoped breakdown.
     const stats = (await getLinkStats(link.id, "30d"))!;
@@ -162,13 +161,12 @@ describe("export CSV variant fidelity (#81 E.95)", () => {
     const SHAPE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
     await db.delete(analyticsClicks);
-    const link = seedLink({ title: "E106-format" });
+    const link = (await seedLink({ title: "E106-format" }));
     await recordClick(link.id, "e106-fresh", null, "click");
-    const stored = db
+    const stored = (await db
       .select({ createdAt: analyticsClicks.createdAt })
       .from(analyticsClicks)
-      .where(eq(analyticsClicks.visitorHash, "e106-fresh"))
-      .get()!.createdAt;
+      .where(eq(analyticsClicks.visitorHash, "e106-fresh")).limit(1))[0]!.createdAt;
     expect(String(stored)).toMatch(SHAPE); // datetime('now') shape, no T
 
     // The boundary every 30d query compares against, in the SAME shape
@@ -188,7 +186,7 @@ describe("export CSV variant fidelity (#81 E.95)", () => {
     // ...and sinceExpr's SOURCE really is the SQLite expression of the
     // same shape (not a JS date rendered into the query).
     const rangeSrc = readFileSync(resolve(process.cwd(), "src/lib/analytics-range.ts"), "utf8");
-    expect(rangeSrc).toContain("datetime('now'");
+    expect(rangeSrc).toContain("utcDaysAgo");
     expect(rangeSrc).not.toContain("toISOString");
   });
 
@@ -251,7 +249,7 @@ describe("export CSV variant fidelity (#81 E.95)", () => {
         );
         expect(res.status, `${metric}/${range}`).toBe(200);
         expect(res.headers.get("Content-Disposition"), `${metric}/${range}`).toContain(
-          `linkbreeze-${metric}-${range}.csv`,
+          `${PRODUCT_FILE_PREFIX}-${metric}-${range}.csv`,
         );
         expect(res.headers.get("Cache-Control"), `${metric}/${range}`).toBe("no-store");
       }
@@ -262,19 +260,19 @@ describe("export CSV variant fidelity (#81 E.95)", () => {
       new NextRequest("http://localhost:3000/api/analytics/export?metric=clicks&range=999d"),
     );
     expect(badRange.status).toBe(200);
-    expect(badRange.headers.get("Content-Disposition")).toContain("linkbreeze-clicks-7d.csv");
+    expect(badRange.headers.get("Content-Disposition")).toContain(`${PRODUCT_FILE_PREFIX}-clicks-7d.csv`);
 
     // Missing range param → also 7d.
     const noRange = await GET(
       new NextRequest("http://localhost:3000/api/analytics/export?metric=clicks"),
     );
-    expect(noRange.headers.get("Content-Disposition")).toContain("linkbreeze-clicks-7d.csv");
+    expect(noRange.headers.get("Content-Disposition")).toContain(`${PRODUCT_FILE_PREFIX}-clicks-7d.csv`);
 
     // Unknown metric token → views (the route's ternary), pinned as actual behavior.
     const bogusMetric = await GET(
       new NextRequest("http://localhost:3000/api/analytics/export?metric=bogus&range=7d"),
     );
-    expect(bogusMetric.headers.get("Content-Disposition")).toContain("linkbreeze-views-7d.csv");
+    expect(bogusMetric.headers.get("Content-Disposition")).toContain(`${PRODUCT_FILE_PREFIX}-views-7d.csv`);
   });
 
   it("E.118: attacker-controlled cells are neutralized in the REAL export (formula injection)", async () => {
@@ -284,7 +282,7 @@ describe("export CSV variant fidelity (#81 E.95)", () => {
     // treat the cell as text), on BOTH metrics.
     await db.delete(analyticsClicks);
     await db.delete(analyticsPageviews);
-    const link = seedLink({ title: "=EVIL_TITLE", url: "https://example.com/x" });
+    const link = (await seedLink({ title: "=EVIL_TITLE", url: "https://example.com/x" }));
     await recordClick(link.id, "e118-a", "=clickFormula", "click", "A");
     await recordPageview("e118-p", "=viewFormula", "desktop", "MA");
 

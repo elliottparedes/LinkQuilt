@@ -69,15 +69,14 @@ describe("GET/PUT /api/v1/profile", () => {
   });
 
   it("returns the profile with socialLinks parsed as an ARRAY", async () => {
-    db.insert(schema.profile)
+    (await db.insert(schema.profile)
       .values({
         displayName: "Ada",
         bio: "Bio text",
         badgeText: null,
         avatarUrl: null,
         socialLinks: JSON.stringify([{ platform: "github", url: "https://github.com/ada" }]),
-      })
-      .run();
+      }));
 
     const res = await getProfileRoute(req("/api/v1/profile"));
     expect(res.status).toBe(200);
@@ -105,7 +104,7 @@ describe("GET/PUT /api/v1/profile", () => {
     expect(body.data.bio).toBe("New bio");
     expect(body.data.socialLinks).toHaveLength(2);
 
-    const row = db.select().from(schema.profile).all()[0];
+    const row = (await db.select().from(schema.profile))[0];
     expect(row.bio).toBe("New bio");
     // Stored in the action's wire format (JSON string) — same column contract
     expect(JSON.parse(row.socialLinks)).toHaveLength(2);
@@ -128,7 +127,7 @@ describe("GET/PUT /api/v1/profile", () => {
   });
 
   it("strips mass-assignment fields and blocks demo writes", async () => {
-    const before = db.select().from(schema.profile).all()[0];
+    const before = (await db.select().from(schema.profile))[0];
     const res = await putProfileRoute(
       req("/api/v1/profile", {
         method: "PUT",
@@ -136,7 +135,7 @@ describe("GET/PUT /api/v1/profile", () => {
       }),
     );
     expect(res.status).toBe(200);
-    const after = db.select().from(schema.profile).all()[0];
+    const after = (await db.select().from(schema.profile))[0];
     expect(after.id).toBe(before.id);
     expect(after.displayName).toBe("Ada Lovelace"); // only the real field wrote
 

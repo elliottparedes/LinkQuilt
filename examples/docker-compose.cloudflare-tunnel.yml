@@ -34,13 +34,13 @@
 
 services:
   linkbreeze:
-    image: docker.io/omnirise/linkbreeze:latest
+    image: ghcr.io/elliottparedes/linkquilt:latest
     container_name: linkbreeze
     restart: unless-stopped
     volumes:
       - linkbreeze-data:/app/data
     environment:
-      - DATABASE_PATH=/app/data/linkbreeze.db
+      - DATABASE_URL=${DATABASE_URL:?Set DATABASE_URL for LinkBreeze}
       - SECRET_KEY=${SECRET_KEY}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]

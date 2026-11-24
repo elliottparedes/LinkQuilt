@@ -25,7 +25,7 @@ describe("[integration] invites", () => {
       createdBy: 1,
       expiresAt: "2099-01-01 00:00:00",
     });
-    const all = db.select().from((await import("@/db/schema")).invites).all();
+    const all = (await db.select().from((await import("@/db/schema")).invites));
     const stored = JSON.stringify(all);
     expect(stored).not.toContain(token);
     expect(all.some((r: { tokenHash: string }) => r.tokenHash === hashInviteToken(token))).toBe(true);
@@ -71,7 +71,7 @@ describe("[integration] invites", () => {
       expiresAt: "2020-06-01 00:00:00",
     });
     await purgeExpiredInvites();
-    const all = db.select().from((await import("@/db/schema")).invites).all();
+    const all = (await db.select().from((await import("@/db/schema")).invites));
     expect(all.some((r: { tokenHash: string }) => r.tokenHash === hashInviteToken("old-expired"))).toBe(false);
   });
 });

@@ -1,15 +1,16 @@
-import { sqliteTable, text, integer, real, index, unique, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, boolean, doublePrecision, index, unique, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { utcNow } from "./sql";
 import { PRODUCT_NAME } from "../lib/brand";
 
 // ─── Users ─────────────────────────────────────────────
-export const users = sqliteTable("users", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const users = pgTable("users", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   username: text("username").notNull().unique(),
   // Reserved the first time the account publishes a page under its handle.
   pageNamespace: text("page_namespace").unique(),
   passwordHash: text("password_hash").notNull(),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  createdAt: text("created_at").notNull().default(utcNow),
   // #124 multi-user: role/capability + lifecycle status. NULL role (pre-124 row)
   // is treated as 'admin' in code so the bootstrapped admin is never demoted.
   role: text("role").notNull().default("owner"), // admin | owner
@@ -19,11 +20,11 @@ export const users = sqliteTable("users", {
   // totp_secret stores the AES-256-GCM ciphertext (see src/lib/two-factor.ts);
   // recovery_codes is a JSON array of bcrypt hashes of used/unused codes.
   totpSecret: text("totp_secret"),
-  totpEnabled: integer("totp_enabled", { mode: "boolean" }).notNull().default(false),
+  totpEnabled: boolean("totp_enabled").notNull().default(false),
   recoveryCodes: text("recovery_codes"),
   // #124 2B customizable roles: the role ROW is the source of truth; the text
   // role above stays as a legacy fast-path hint. NULL maps through the text.
-  roleId: integer("role_id").references((): AnySQLiteColumn => roles.id, { onDelete: "set null" }),
+  roleId: integer("role_id").references((): AnyPgColumn => roles.id, { onDelete: "set null" }),
   // #124 follow-up session lifetime: idle = minutes of inactivity before the
   // session dies; max = absolute hours since mint. NULL = inherit role, then
   // the global KV defaults.
@@ -38,57 +39,57 @@ export const users = sqliteTable("users", {
 // page), 'manage_all' (edit any page). canManageAccounts/canManageInstance
 // gate the /accounts + settings surfaces. Admin/Member ship as builtins
 // (is_builtin) — the actions refuse to delete or strip them.
-export const roles = sqliteTable("roles", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const roles = pgTable("roles", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   name: text("name").notNull().unique(),
-  isBuiltin: integer("is_builtin", { mode: "boolean" }).notNull().default(false),
+  isBuiltin: boolean("is_builtin").notNull().default(false),
   pagesLimit: integer("pages_limit"), // NULL = unlimited
   pagesVisibility: text("pages_visibility").notNull().default("own"), // own | view_all | manage_all
-  canManageAccounts: integer("can_manage_accounts", { mode: "boolean" }).notNull().default(false),
-  canManageInstance: integer("can_manage_instance", { mode: "boolean" }).notNull().default(false),
+  canManageAccounts: boolean("can_manage_accounts").notNull().default(false),
+  canManageInstance: boolean("can_manage_instance").notNull().default(false),
   // Per-role session overrides (NULL = use global KV defaults).
   idleMinutes: integer("idle_minutes"),
   maxHours: integer("max_hours"),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  createdAt: text("created_at").notNull().default(utcNow),
 });
 
 // ─── Admin audit log (#124 follow-up) ──────────────────
 // Append-only. actor_user_id survives as NULL when the user is deleted;
 // actor_username is snapshotted so entries stay readable.
-export const auditLog = sqliteTable("audit_log", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  actorUserId: integer("actor_user_id").references((): AnySQLiteColumn => users.id, { onDelete: "set null" }),
+export const auditLog = pgTable("audit_log", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  actorUserId: integer("actor_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   actorUsername: text("actor_username"),
   action: text("action").notNull(),
   target: text("target"),
   detail: text("detail"), // JSON
   ip: text("ip"),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-});
+  createdAt: text("created_at").notNull().default(utcNow),
+}, (table) => [index("audit_log_created_at").on(table.createdAt), index("audit_log_action").on(table.action), index("audit_log_actor").on(table.actorUserId)]);
 
 // ─── Member invitations, stage 1 (#124 follow-up) ──────
 // Single-use links; only the SHA-256 hash of the token is stored. SMTP
 // delivery is stage 2 (outbound email layer issue).
-export const invites = sqliteTable("invites", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const invites = pgTable("invites", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   tokenHash: text("token_hash").notNull().unique(),
-  roleId: integer("role_id").references((): AnySQLiteColumn => roles.id, { onDelete: "set null" }),
-  createdBy: integer("created_by").references((): AnySQLiteColumn => users.id, { onDelete: "set null" }),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  roleId: integer("role_id").references((): AnyPgColumn => roles.id, { onDelete: "set null" }),
+  createdBy: integer("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  createdAt: text("created_at").notNull().default(utcNow),
   expiresAt: text("expires_at").notNull(),
   usedAt: text("used_at"),
-  usedBy: integer("used_by").references((): AnySQLiteColumn => users.id, { onDelete: "set null" }),
-});
+  usedBy: integer("used_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+}, (table) => [index("invites_expires_at").on(table.expiresAt)]);
 
 // ─── Settings (key-value, runtime config) ─────────────
-export const settings = sqliteTable("settings", {
+export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
 });
 
 // ─── Profile (legacy singleton — kept for migration compat) ──
-export const profile = sqliteTable("profile", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const profile = pgTable("profile", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   avatarUrl: text("avatar_url"),
   displayName: text("display_name").notNull().default(""),
   bio: text("bio").notNull().default(""),
@@ -100,8 +101,8 @@ export const profile = sqliteTable("profile", {
 // Each page is a full mini-profile: own avatar, name, bio, social links,
 // theme, slug, SEO, favicon, analytics script, etc.
 // Replaces the singleton `profile` table for v1.2.0+.
-export const pages = sqliteTable("pages", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const pages = pgTable("pages", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   slug: text("slug").notNull().unique(),
   title: text("title").notNull().default(""),        // display name
   bio: text("bio").notNull().default(""),
@@ -111,9 +112,9 @@ export const pages = sqliteTable("pages", {
   socialLinks: text("social_links").notNull().default("[]"), // JSON array
   themeId: integer("theme_id"),
   orderIndex: integer("order_index").notNull().default(0),
-  isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
-  isPublished: integer("is_published", { mode: "boolean" }).notNull().default(true),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  isDefault: boolean("is_default").notNull().default(false),
+  isPublished: boolean("is_published").notNull().default(true),
+  createdAt: text("created_at").notNull().default(utcNow),
   // #124 multi-user: which account owns this page. NULL = legacy page (created
   // before multi-user) — treated as managed by an instance admin.
   userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -124,14 +125,14 @@ export const pages = sqliteTable("pages", {
   footerText: text("footer_text").notNull().default(`Powered by ${PRODUCT_NAME}`),
   analyticsScript: text("analytics_script").notNull().default(""),
   customCss: text("custom_css").notNull().default(""),
-  emailCapture: integer("email_capture", { mode: "boolean" }).notNull().default(false),
+  emailCapture: boolean("email_capture").notNull().default(false),
   faviconUrl: text("favicon_url"),
   privacyPolicy: text("privacy_policy").notNull().default(""),
   // Per-page QR style (colors, center logo choice, size) as JSON.
   // NULL = defaults; see src/lib/qr.ts for the shape + resolver.
   qrSettings: text("qr_settings"),
   // Share & wallet exports block on the public page. NULL = off (opt-in).
-  shareEnabled: integer("share_enabled", { mode: "boolean" }),
+  shareEnabled: boolean("share_enabled"),
   // ─── Image adjustments (per-upload metadata, Spec: Image-Positioning) ───
   // All nullable; NULL = current rendering (object-fit cover, centered, no
   // zoom). Belongs to the UPLOAD, not theme knobs. avatar/banner: focus
@@ -139,17 +140,17 @@ export const pages = sqliteTable("pages", {
   // per-upload override of the theme's background fit/position; zoom for
   // image backgrounds only (video: fit + position only).
   avatarFit: text("avatar_fit"), // 'cover' | 'contain'
-  avatarPosX: real("avatar_pos_x"), // 0–1 focus point
-  avatarPosY: real("avatar_pos_y"),
-  avatarZoom: real("avatar_zoom"), // 1–3
+  avatarPosX: doublePrecision("avatar_pos_x"), // 0–1 focus point
+  avatarPosY: doublePrecision("avatar_pos_y"),
+  avatarZoom: doublePrecision("avatar_zoom"), // 1–3
   bannerFit: text("banner_fit"),
-  bannerPosX: real("banner_pos_x"),
-  bannerPosY: real("banner_pos_y"),
-  bannerZoom: real("banner_zoom"),
+  bannerPosX: doublePrecision("banner_pos_x"),
+  bannerPosY: doublePrecision("banner_pos_y"),
+  bannerZoom: doublePrecision("banner_zoom"),
   backgroundFitOverride: text("background_fit_override"), // 'cover' | 'contain' | NULL (= theme)
-  backgroundPosX: real("background_pos_x"),
-  backgroundPosY: real("background_pos_y"),
-  backgroundZoom: real("background_zoom"),
+  backgroundPosX: doublePrecision("background_pos_x"),
+  backgroundPosY: doublePrecision("background_pos_y"),
+  backgroundZoom: doublePrecision("background_zoom"),
   // ─── OG image (per page) ───
   // 'auto' (NULL) = the dynamic opengraph-image route renders a card that
   // follows the page's theme (background/colors/avatar). 'custom' = serve
@@ -158,9 +159,9 @@ export const pages = sqliteTable("pages", {
   ogImageMode: text("og_image_mode"), // 'auto' | 'custom' | NULL (= auto)
   ogImageUrl: text("og_image_url"),
   ogImageFit: text("og_image_fit"),
-  ogImagePosX: real("og_image_pos_x"),
-  ogImagePosY: real("og_image_pos_y"),
-  ogImageZoom: real("og_image_zoom"),
+  ogImagePosX: doublePrecision("og_image_pos_x"),
+  ogImagePosY: doublePrecision("og_image_pos_y"),
+  ogImageZoom: doublePrecision("og_image_zoom"),
 
   // ─── Custom domains (#85) ───
   // What a host bound to this page exposes: 'exclusive' (NULL = default) →
@@ -178,7 +179,7 @@ export const pages = sqliteTable("pages", {
   vcardAddress: text("vcard_address"),
 }, (table) => [
   index("pages_theme_id_idx").on(table.themeId),
-  index("pages_slug_nocase_idx").on(sql`${table.slug} COLLATE NOCASE`),
+  uniqueIndex("pages_slug_nocase_idx").on(sql`lower(${table.slug} COLLATE "C")`),
   index("pages_user_id_idx").on(table.userId),
 ]);
 
@@ -186,10 +187,10 @@ export const pages = sqliteTable("pages", {
 // Links a local user to an external OIDC identity. Separate table (never columns
 // on users) so one user may link MULTIPLE identities later (e.g. work + personal
 // IdP). UNIQUE(issuer, subject) = one identity maps to exactly one user.
-export const oidcIdentities = sqliteTable(
+export const oidcIdentities = pgTable(
   "oidc_identities",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -198,20 +199,20 @@ export const oidcIdentities = sqliteTable(
     // Snapshot of the IdP's preferred_username at link time (JIT slug source +
     // admin display). Not authoritative — the IdP can change it.
     preferredUsername: text("preferred_username"),
-    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+    createdAt: text("created_at").notNull().default(utcNow),
   },
-  (t) => [unique("oidc_identities_issuer_subject").on(t.issuer, t.subject)],
+  (t) => [unique("oidc_identities_issuer_subject").on(t.issuer, t.subject), index("oidc_identities_user_id").on(t.userId)],
 );
 
 // ─── OIDC auth states (#124) ─────────────────────────
 // Server-side PKCE/state store for the OIDC login flow. Single-use (deleted on
 // consume), expiring. Holds the code_verifier for the token exchange and the
 // site-relative redirect target after a successful login.
-export const oidcStates = sqliteTable("oidc_states", {
+export const oidcStates = pgTable("oidc_states", {
   state: text("state").primaryKey(),
   codeVerifier: text("code_verifier").notNull(),
   redirectTo: text("redirect_to").notNull().default("/"),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  createdAt: text("created_at").notNull().default(utcNow),
   expiresAt: text("expires_at").notNull(),
 });
 
@@ -219,8 +220,8 @@ export const oidcStates = sqliteTable("oidc_states", {
 // Host→page bindings read by src/proxy.ts on every request (Node runtime).
 // `host` is stored normalized: lowercase punycode, no port, no trailing dot
 // (see normalizeHost in src/lib/host-routing.ts).
-export const domains = sqliteTable("domains", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const domains = pgTable("domains", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   pageId: integer("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
   host: text("host").notNull().unique(),
   // 'primary' = the page's canonical identity; 'alias' = secondary host.
@@ -234,26 +235,26 @@ export const domains = sqliteTable("domains", {
   // (self-verifying — no fake "verified" state), or the operator activates
   // it manually for /etc/hosts-style testing.
   status: text("status").notNull().default("pending"), // pending | active
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-});
+  createdAt: text("created_at").notNull().default(utcNow),
+}, (table) => [index("domains_page_id_idx").on(table.pageId)]);
 
 // ─── Link sections (1.3) ──────────────────────────────
 // Groups links under headers on the public page. Links with a null
 // section_id render in the uncategorized group at the top.
-export const linkSections = sqliteTable("link_sections", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const linkSections = pgTable("link_sections", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   pageId: integer("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   icon: text("icon"), // optional emoji shown before the title
   orderIndex: integer("order_index").notNull().default(0),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-});
+  createdAt: text("created_at").notNull().default(utcNow),
+}, (table) => [index("link_sections_page_id_idx").on(table.pageId)]);
 
 // ─── Links ────────────────────────────────────────────
-export const links = sqliteTable("links", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const links = pgTable("links", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   pageId: integer("page_id").notNull().default(1),
-  sectionId: integer("section_id"), // FK to link_sections.id (enforced in 0013 migration SQL)
+  sectionId: integer("section_id").references(() => linkSections.id, { onDelete: "set null" }),
   orderIndex: integer("order_index").notNull().default(0),
   type: text("type").notNull().default("url"), // url, email, phone, whatsapp, sms, vcard, file, embed, text, location, divider
   title: text("title").notNull(),
@@ -263,10 +264,10 @@ export const links = sqliteTable("links", {
   iconUrl: text("icon_url"), // cached favicon (auto mode)
   customIconUrl: text("custom_icon_url"), // uploaded icon (custom mode)
   iconMode: text("icon_mode").notNull().default("auto"), // auto | lucide | custom
-  autoIcon: integer("auto_icon", { mode: "boolean" }).notNull().default(true),
+  autoIcon: boolean("auto_icon").notNull().default(true),
   imageUrl: text("image_url"),
-  isHighlighted: integer("is_highlighted", { mode: "boolean" }).notNull().default(false),
-  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  isHighlighted: boolean("is_highlighted").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
   scheduleStart: text("schedule_start"),
   scheduleEnd: text("schedule_end"),
   clicksCount: integer("clicks_count").notNull().default(0),
@@ -290,12 +291,12 @@ export const links = sqliteTable("links", {
   // zod schema). NULL = the page's default contact card (Settings → Contact
   // card); set = a full-replace custom card served by /api/vcard/<slug>?link=<id>.
   vcardConfig: text("vcard_config"),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-});
+  createdAt: text("created_at").notNull().default(utcNow),
+}, (table) => [index("links_page_order_idx").on(table.pageId, table.orderIndex), index("links_section_id_idx").on(table.sectionId)]);
 
 // ─── Themes ───────────────────────────────────────────
-export const themes = sqliteTable("themes", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const themes = pgTable("themes", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   name: text("name").notNull(),
 
   // Background
@@ -366,8 +367,8 @@ export const themes = sqliteTable("themes", {
   textAnimation: text("text_animation").notNull().default("none"), // none, typewriter, gradient-flow
 
   // Meta
-  isActive: integer("is_active", { mode: "boolean" }).notNull().default(false),
-  isPreset: integer("is_preset", { mode: "boolean" }).notNull().default(false),
+  isActive: boolean("is_active").notNull().default(false),
+  isPreset: boolean("is_preset").notNull().default(false),
   ownerId: integer("owner_id").references(() => users.id, { onDelete: "set null" }),
 }, (table) => [
   index("themes_owner_name_idx").on(table.ownerId, table.name),
@@ -375,8 +376,8 @@ export const themes = sqliteTable("themes", {
 ]);
 
 // ─── Custom fonts (uploaded woff2/woff, #82) ──────────
-export const customFonts = sqliteTable("custom_fonts", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const customFonts = pgTable("custom_fonts", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   /** User-supplied display name ("Brand Sans"). */
   name: text("name").notNull(),
   /** CSS font-family name: "LB Custom <id>". Numeric, never user-typed. */
@@ -389,25 +390,25 @@ export const customFonts = sqliteTable("custom_fonts", {
   sizeBytes: integer("size_bytes").notNull().default(0),
   /** woff2 or woff — controls the @font-face format() hint. */
   format: text("format").notNull().default("woff2"),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  createdAt: text("created_at").notNull().default(utcNow),
 });
 
 // ─── Analytics ────────────────────────────────────────
-export const analyticsPageviews = sqliteTable("analytics_pageviews", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const analyticsPageviews = pgTable("analytics_pageviews", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   pageId: integer("page_id"),
-  date: text("date").notNull().default(sql`(date('now'))`),
+  date: text("date").notNull().default(sql`left(${utcNow}, 10)`),
   visitorHash: text("visitor_hash").notNull(),
   referrer: text("referrer"),
   country: text("country"),
   deviceType: text("device_type"),
   /** Campaign tag from `?s=` (ig, tiktok, yt, x, newsletter, qr). Null = untagged. */
   source: text("source"),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-});
+  createdAt: text("created_at").notNull().default(utcNow),
+}, (table) => [index("analytics_pageviews_created_at_idx").on(table.createdAt), index("analytics_pageviews_page_time_idx").on(table.pageId, table.createdAt)]);
 
-export const analyticsClicks = sqliteTable("analytics_clicks", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const analyticsClicks = pgTable("analytics_clicks", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   linkId: integer("link_id").notNull().references(() => links.id, { onDelete: "cascade" }),
   visitorHash: text("visitor_hash").notNull(),
   referrer: text("referrer"),
@@ -420,30 +421,30 @@ export const analyticsClicks = sqliteTable("analytics_clicks", {
   variant: text("variant"),
   /** Campaign tag carried from the public page (`?s=` on /go). */
   source: text("source"),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-});
+  createdAt: text("created_at").notNull().default(utcNow),
+}, (table) => [index("analytics_clicks_created_at_idx").on(table.createdAt), index("analytics_clicks_link_time_idx").on(table.linkId, table.createdAt)]);
 
 /** Icon-row taps. Kept off analytics_clicks so they never inflate link CTR. */
-export const analyticsSocialClicks = sqliteTable("analytics_social_clicks", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const analyticsSocialClicks = pgTable("analytics_social_clicks", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   pageId: integer("page_id"),
   platform: text("platform").notNull(),
   visitorHash: text("visitor_hash").notNull(),
   source: text("source"),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-});
+  createdAt: text("created_at").notNull().default(utcNow),
+}, (table) => [index("analytics_social_clicks_created_at_idx").on(table.createdAt), index("analytics_social_clicks_page_time_idx").on(table.pageId, table.createdAt)]);
 
 // ─── Subscribers (email capture) ──────────────────────
-export const subscribers = sqliteTable("subscribers", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const subscribers = pgTable("subscribers", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   email: text("email").notNull().unique(),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  createdAt: text("created_at").notNull().default(utcNow),
   consentAt: text("consent_at"),
   consentText: text("consent_text"),
 });
 
 // ─── Meta (internal) ──────────────────────────────────
-export const meta = sqliteTable("_meta", {
+export const meta = pgTable("_meta", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
 });

@@ -78,7 +78,7 @@ export async function runAbAutoPromoteScan(): Promise<number> {
     // window the dashboard happens to show. Retention pruning only lowers
     // these, which makes the scanner MORE conservative over time, never less.
     const rows = await db
-      .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)` })
+      .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)`.mapWith(Number) })
       .from(analyticsClicks)
       .where(and(eq(analyticsClicks.linkId, link.id), isNotNull(analyticsClicks.variant)))
       .groupBy(analyticsClicks.variant);

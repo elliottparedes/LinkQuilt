@@ -64,7 +64,7 @@ const ANALYTICS_KEYS = [
 
 beforeAll(async () => {
   KEY = (await createApiKey()).key;
-  pageId = seedPage({ slug: "contract-page", title: "Contract Page" }).id;
+  pageId = (await seedPage({ slug: "contract-page", title: "Contract Page" })).id;
 });
 
 describe("E.35 wire contract snapshots", () => {
@@ -113,15 +113,14 @@ describe("E.35 wire contract snapshots", () => {
 
   it("profile pins its five display keys exactly", async () => {
     // insert (profile row exists for this harness db or not — shape on 200)
-    db.insert(schema.profile)
+    (await db.insert(schema.profile)
       .values({
         displayName: "Contract",
         bio: "Bio",
         badgeText: null,
         avatarUrl: null,
         socialLinks: "[]",
-      })
-      .run();
+      }));
     const res = await getProfileRoute(req("/api/v1/profile"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -168,7 +167,7 @@ describe("E.35 wire contract snapshots", () => {
   });
 
   it("raw db row and wire row agree for a link (no projection surprises)", async () => {
-    const raw = db.select().from(schema.links).all()[0];
+    const raw = (await db.select().from(schema.links))[0];
     expect(keysOf(raw)).toEqual(LINK_ROW_KEYS); // wire == schema columns
   });
 });

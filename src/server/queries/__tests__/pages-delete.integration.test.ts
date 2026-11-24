@@ -22,8 +22,8 @@ describe("[integration] deletePage cascade (#84)", () => {
     // The DB may already hold a default page from migrations — resolve the
     // real one rather than assuming a freshly seeded row wins.
     const target = await getDefaultPage();
-    const victim = seedPage({ slug: "victim", title: "Victim", isDefault: false });
-    const moved = seedLink({ pageId: victim.id, title: "Kept link", url: "https://keep.example" });
+    const victim = (await seedPage({ slug: "victim", title: "Victim", isDefault: false }));
+    const moved = (await seedLink({ pageId: victim.id, title: "Kept link", url: "https://keep.example" }));
 
     await deletePage(victim.id, false);
 
@@ -41,8 +41,8 @@ describe("[integration] deletePage cascade (#84)", () => {
   });
 
   it("wipe mode deletes the page's links with it", async () => {
-    const victim = seedPage({ slug: "victim-wipe", title: "Victim Wipe", isDefault: false });
-    seedLink({ pageId: victim.id, title: "Doomed link", url: "https://doomed.example" });
+    const victim = (await seedPage({ slug: "victim-wipe", title: "Victim Wipe", isDefault: false }));
+    (await seedLink({ pageId: victim.id, title: "Doomed link", url: "https://doomed.example" }));
 
     await deletePage(victim.id, true);
 
@@ -57,8 +57,8 @@ describe("[integration] deletePage cascade (#84)", () => {
   });
 
   it("removes the deleted page's sections", async () => {
-    const def = seedPage({ slug: "home2", title: "Home2", isDefault: true });
-    const victim = seedPage({ slug: "victim2", title: "Victim2", isDefault: false });
+    const def = (await seedPage({ slug: "home2", title: "Home2", isDefault: true }));
+    const victim = (await seedPage({ slug: "victim2", title: "Victim2", isDefault: false }));
     const { createSection } = await import("@/server/queries");
     const s = await createSection({ pageId: victim.id, title: "Doomed" });
     expect(s.id).toBeTruthy();
@@ -75,8 +75,8 @@ describe("[integration] deletePage cascade (#84)", () => {
   });
 
   it("releases pages pinned to a deleted theme (#84 themes)", async () => {
-    const theme = seedTheme({ name: "Doomed Theme", isPreset: false, isActive: false });
-    const page = seedPage({ slug: "themed", title: "Themed", isDefault: false });
+    const theme = (await seedTheme({ name: "Doomed Theme", isPreset: false, isActive: false }));
+    const page = (await seedPage({ slug: "themed", title: "Themed", isDefault: false }));
     const { updatePage } = await import("@/server/queries");
     await updatePage(page.id, { themeId: theme.id });
 
@@ -84,12 +84,12 @@ describe("[integration] deletePage cascade (#84)", () => {
 
     // Theme gone; page survived and no longer points at it.
     expect(await getThemeById(theme.id)).toBeNull();
-    const rows = db.select().from(pages).where(eq(pages.id, page.id)).all();
+    const rows = (await db.select().from(pages).where(eq(pages.id, page.id)));
     expect(rows[0].themeId).toBeNull();
   });
 
   it("refuses to delete a preset theme at the query layer", async () => {
-    const preset = seedTheme({ name: "Protected Preset", isPreset: true, isActive: false });
+    const preset = (await seedTheme({ name: "Protected Preset", isPreset: true, isActive: false }));
     await expect(deleteTheme(preset.id)).rejects.toThrow(/preset/i);
     expect(await getThemeById(preset.id)).not.toBeNull();
   });

@@ -111,8 +111,8 @@ async function expectErrorEnvelope(
 
 beforeAll(async () => {
   KEY = (await createApiKey()).key;
-  pageId = seedPage({ slug: "err-page", title: "Error Page" }).id;
-  seedLinkId = seedLink({ title: "Err seed", url: "https://err.example", pageId }).id;
+  pageId = (await seedPage({ slug: "err-page", title: "Error Page" })).id;
+  seedLinkId = (await seedLink({ title: "Err seed", url: "https://err.example", pageId })).id;
 });
 
 afterEach(() => {
@@ -263,7 +263,7 @@ describe("E.30 error envelope across the whole surface", () => {
       404,
     );
     // no profile row anywhere in this harness db (seeded? delete if present)
-    db.delete(schema.profile).run();
+    (await db.delete(schema.profile));
     await expectErrorEnvelope(
       "PUT /sections/:id missing",
       await updateSectionRoute(

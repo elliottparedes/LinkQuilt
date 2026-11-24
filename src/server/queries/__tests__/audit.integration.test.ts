@@ -82,7 +82,7 @@ describe("[integration] audit log", () => {
     await recordAudit("account.deleted", "aud-doomed", undefined, {
       actor: { userId: temp.id, username: "aud-doomed" },
     });
-    db.delete(schema.users).where(eq(schema.users.id, temp.id)).run();
+    (await db.delete(schema.users).where(eq(schema.users.id, temp.id)));
     const { entries } = await listAuditEntries({ action: "account.deleted" });
     const entry = entries.find((e) => e.target === "aud-doomed");
     expect(entry).toBeDefined();
@@ -92,16 +92,14 @@ describe("[integration] audit log", () => {
 
   it("retention deletes entries older than the configured window", async () => {
     // backdate one entry beyond the default 90 days
-    db.insert(schema.auditLog)
-      .values({ action: "login.success", actorUsername: "ancient", createdAt: "2020-01-01 00:00:00" })
-      .run();
+    (await db.insert(schema.auditLog)
+      .values({ action: "login.success", actorUsername: "ancient", createdAt: "2020-01-01 00:00:00" }));
     await recordAudit("login.success", "fresh", undefined, { actor: { userId: 1, username: "aud-admin" } });
     await sweepAuditRetention();
-    const ancient = db
+    const ancient = (await db
       .select()
       .from(schema.auditLog)
-      .where(sql`${schema.auditLog.actorUsername} = 'ancient'`)
-      .all();
+      .where(sql`${schema.auditLog.actorUsername} = 'ancient'`));
     expect(ancient.length).toBe(0);
   });
 

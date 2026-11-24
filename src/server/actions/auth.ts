@@ -13,7 +13,7 @@ import {
 import {
   getUserByUsername,
   getUserCount,
-  createUser,
+  createFirstUser,
   getSetting,
 } from "@/server/queries";
 import { demoGuard } from "@/lib/demo-guard";
@@ -191,9 +191,8 @@ export async function setup(formData: FormData): Promise<ActionResult> {
 
   try {
     const passwordHash = await hashPassword(password);
-    // The bootstrap user is the instance's first admin — they must be able to
-    // manage accounts and global settings. createUser defaults to "owner".
-    const user = await createUser(username.trim(), passwordHash, { role: "admin" });
+    const user = await createFirstUser(username.trim(), passwordHash);
+    if (!user) return conflictError("Setup has already been completed");
     await createSession(user.id, user.username);
     return { success: true };
   } catch (err) {

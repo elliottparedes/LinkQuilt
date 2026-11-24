@@ -47,8 +47,8 @@ function req(url: string, extraHeaders: Record<string, string> = {}): NextReques
 
 beforeAll(async () => {
   KEY = (await createApiKey()).key;
-  pageId = seedPage({ slug: "etag-page", title: "ETag Page" }).id;
-  seedLink({ title: "ETag link", url: "https://etag.example", pageId, orderIndex: 0 });
+  pageId = (await seedPage({ slug: "etag-page", title: "ETag Page" })).id;
+  (await seedLink({ title: "ETag link", url: "https://etag.example", pageId, orderIndex: 0 }));
 });
 
 describe("GET /api/v1/links — conditional responses", () => {
@@ -190,15 +190,14 @@ describe("GET /api/v1/links — conditional responses", () => {
 
 describe("GET /api/v1/profile — conditional responses", () => {
   it("roundtrips 200 → 304 until the profile changes", async () => {
-    db.insert(schema.profile)
+    (await db.insert(schema.profile)
       .values({
         displayName: "Ada",
         bio: "Bio",
         badgeText: null,
         avatarUrl: null,
         socialLinks: "[]",
-      })
-      .run();
+      }));
 
     const first = await getProfileRoute(req("/api/v1/profile"));
     expect(first.status).toBe(200);
@@ -210,9 +209,8 @@ describe("GET /api/v1/profile — conditional responses", () => {
     expect(replay.status).toBe(304);
     expect((await replay.text())).toBe("");
 
-    db.update(schema.profile)
-      .set({ displayName: "Ada Lovelace" })
-      .run();
+    (await db.update(schema.profile)
+      .set({ displayName: "Ada Lovelace" }));
 
     const changed = await getProfileRoute(
       req("/api/v1/profile", { "if-none-match": etag }),
@@ -338,7 +336,7 @@ describe("E.41 HEAD interplay (framework derives HEAD from GET)", () => {
 describe("E.57 sections views are query-scoped validators", () => {
   it("?pageId gets a different ETag than the full list; each replays its own 304, cross-replay does not", async () => {
     // Guarantee the subset differs: one section on ANOTHER page.
-    const otherPage = seedPage({ slug: "etag-page-2", title: "ETag Page 2" }).id;
+    const otherPage = (await seedPage({ slug: "etag-page-2", title: "ETag Page 2" })).id;
     await createSection({ pageId: otherPage, title: "Other page section" });
 
     const full = await listSections(req("/api/v1/sections"));

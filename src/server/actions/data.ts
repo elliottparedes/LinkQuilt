@@ -166,10 +166,10 @@ export async function clearAnalytics(): Promise<ActionResult> {
   const denied = await requireInstanceAdmin();
   if (denied) return denied;
 
-  db.transaction((tx) => {
-    tx.delete(analyticsPageviews).run();
-    tx.delete(analyticsClicks).run();
-    tx.update(links).set({ clicksCount: 0 }).run();
+  await db.transaction(async (tx) => {
+    (await tx.delete(analyticsPageviews));
+    (await tx.delete(analyticsClicks));
+    (await tx.update(links).set({ clicksCount: 0 }));
   });
 
   revalidatePath("/dashboard");
@@ -326,7 +326,7 @@ export async function importTheme(json: string): Promise<ActionResult> {
   }
 
   const { themeNameExists, insertCustomFont, updateCustomFontFamily } = await import("@/server/queries");
-  if (themeNameExists(t.name, session.userId)) {
+  if (await themeNameExists(t.name, session.userId)) {
     return conflictError("A theme with this name already exists");
   }
 
@@ -363,7 +363,7 @@ export async function importTheme(json: string): Promise<ActionResult> {
       await ensureUploadsDir();
       const hexId = crypto.randomBytes(12).toString("hex");
       const filename = `${hexId}.${sniffed}`;
-      await writeFile(path.join(UPLOADS_DIR, filename), buffer);
+      await writeFile(/* turbopackIgnore: true */ path.join(UPLOADS_DIR, filename), buffer);
       const row = await insertCustomFont({
         name: payload.name,
         family: "",

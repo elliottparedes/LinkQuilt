@@ -141,7 +141,7 @@ export async function readBackupFile(filename: string): Promise<string | null> {
   const p = validatedBackupPath(filename);
   if (!p) return null;
   try {
-    return await readFile(p, "utf8");
+    return await readFile(/* turbopackIgnore: true */ p, "utf8");
   } catch {
     return null;
   }

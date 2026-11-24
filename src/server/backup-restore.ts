@@ -10,7 +10,7 @@ import {
   customFonts,
   users,
 } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, getTableName, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
   type ActionResult,
@@ -349,33 +349,55 @@ export async function applyBackupPayload(
   );
 
   try {
-    db.transaction((tx) => {
-      tx.delete(profile).run();
-      tx.delete(links).run();
-      tx.delete(linkSections).run();
-      tx.delete(settings).run();
-      tx.delete(themes).run();
-      tx.delete(customFonts).run();
-      if (parsed.profile.length) tx.insert(profile).values(parsed.profile).run();
-      if (sections.length) tx.insert(linkSections).values(sections).run();
-      if (parsed.links.length) tx.insert(links).values(parsed.links).run();
-      if (parsed.settings.length) tx.insert(settings).values(parsed.settings).run();
+    await db.transaction(async (tx) => {
+      const restoredIdentities = [
+        [profile, parsed.profile],
+        [linkSections, sections],
+        [links, parsed.links],
+        [themes, parsed.themes],
+        [customFonts, fonts],
+      ] as const;
+      // A portable backup can mix explicit IDs with rows that use defaults.
+      // Reserve the explicit IDs before inserts and retain the prior high-water mark.
+      await tx.execute(sql`LOCK TABLE profile, link_sections, links, themes, custom_fonts, settings IN SHARE ROW EXCLUSIVE MODE`);
+      for (const [table, rows] of restoredIdentities) {
+        const highest = rows.reduce((max, row) => Math.max(max, row.id ?? 0), 0);
+        if (!highest) continue;
+        if (!Number.isInteger(highest) || highest >= 2147483647) throw new Error("Invalid backup ID");
+        const sequence = sql.identifier(`${getTableName(table)}_id_seq`);
+        const { rows: [sequenceState] } = await tx.execute<{ last_value: number }>(
+          sql`SELECT last_value::integer AS last_value FROM ${sequence}`,
+        );
+        if (highest >= sequenceState.last_value) {
+          await tx.execute(sql`ALTER TABLE ${table} ALTER COLUMN id RESTART WITH ${sql.raw(String(highest + 1))}`);
+        }
+      }
+      (await tx.delete(profile));
+      (await tx.delete(links));
+      (await tx.delete(linkSections));
+      (await tx.delete(settings));
+      (await tx.delete(themes));
+      (await tx.delete(customFonts));
+      if (parsed.profile.length) (await tx.insert(profile).values(parsed.profile));
+      if (sections.length) (await tx.insert(linkSections).values(sections));
+      if (parsed.links.length) (await tx.insert(links).values(parsed.links));
+      if (parsed.settings.length) (await tx.insert(settings).values(parsed.settings));
       if (parsed.themes.length) {
         // Backups omit accounts. Restore ownership only when the same account
         // still exists here, since user ids can refer to different accounts on another instance.
         const backedUpOwners = new Map(validatedOwners.data?.map((owner) => [owner.id, owner]));
-        const matchingOwners = new Set(tx.select({
+        const matchingOwners = new Set((await tx.select({
           id: users.id, username: users.username, createdAt: users.createdAt,
-        }).from(users).all().filter((user) => {
+        }).from(users)).filter((user) => {
           const owner = backedUpOwners.get(user.id);
           return owner?.username === user.username && owner.createdAt === user.createdAt;
         }).map((user) => user.id));
-        tx.insert(themes).values(parsed.themes.map((theme) => ({
+        (await tx.insert(themes).values(parsed.themes.map((theme) => ({
           ...theme,
           ownerId: theme.ownerId && matchingOwners.has(theme.ownerId) ? theme.ownerId : null,
-        }))).run();
+        }))));
       }
-      if (fonts.length) tx.insert(customFonts).values(fonts).run();
+      if (fonts.length) (await tx.insert(customFonts).values(fonts));
     });
   } catch (err) {
     console.error("[applyBackupPayload]", err);

@@ -28,12 +28,12 @@ const {
   getBackupOverview,
 } = await import("@/server/backup-scheduler");
 
-const SET = (k: string, v: string) =>
-  db.insert(schema.settings).values({ key: k, value: v }).onConflictDoUpdate({ target: schema.settings.key, set: { value: v } }).run();
+const SET = async (k: string, v: string) =>
+  (await db.insert(schema.settings).values({ key: k, value: v }).onConflictDoUpdate({ target: schema.settings.key, set: { value: v } }));
 
-const KV = () =>
+const KV = async () =>
   Object.fromEntries(
-    db.select().from(schema.settings).all().map((r: { key: string; value: string }) => [r.key, r.value]),
+    (await db.select().from(schema.settings)).map((r: { key: string; value: string }) => [r.key, r.value]),
   );
 
 const jsonFiles = () => readdirSync(dir).filter((f) => f.endsWith(".json"));
@@ -41,18 +41,17 @@ const jsonFiles = () => readdirSync(dir).filter((f) => f.endsWith(".json"));
 async function seedContent() {
   // Migrations bootstrap a default page (slug "u"); reuse it instead of
   // inserting a duplicate. Insert a page only when the table is empty.
-  const existing = db.select({ id: schema.pages.id }).from(schema.pages).all();
+  const existing = (await db.select({ id: schema.pages.id }).from(schema.pages));
   let pageId: number;
   if (existing.length === 0) {
-    await db.insert(schema.pages).values({ slug: "u", title: "Test", isDefault: true }).run();
+    await db.insert(schema.pages).values({ slug: "u", title: "Test", isDefault: true });
     pageId = 1;
   } else {
     pageId = existing[0].id;
   }
   await db
     .insert(schema.links)
-    .values({ pageId, type: "url", title: "My site", url: "https://example.com" })
-    .run();
+    .values({ pageId, type: "url", title: "My site", url: "https://example.com" });
 }
 
 beforeAll(async () => {
@@ -65,8 +64,8 @@ afterAll(() => {
 
 describe("runScheduledBackup (integration)", () => {
   it("force run: writes a restorable payload and records success", async () => {
-    SET("backupEnabled", "true");
-    SET("backupRetentionCount", "5");
+    (await SET("backupEnabled", "true"));
+    (await SET("backupRetentionCount", "5"));
 
     const res = await runScheduledBackup(true);
 
@@ -77,7 +76,7 @@ describe("runScheduledBackup (integration)", () => {
     expect(payload.version).toBe(1);
     expect(payload.links).toHaveLength(1);
     expect(payload.links[0].title).toBe("My site");
-    const kv = KV();
+    const kv = (await KV());
     expect(kv.backupLastResult).toBe("ok");
     expect(kv.backupLastRunAt).toBeTruthy();
     // No error marker on success.
@@ -86,21 +85,21 @@ describe("runScheduledBackup (integration)", () => {
 
   it("scheduled run fires only when the slot is uncovered", async () => {
     // Enabled, daily at 00:00, last success 2 days ago → due.
-    SET("backupFrequency", "daily");
-    SET("backupTimeOfDay", "00:00");
-    SET("backupLastRunAt", new Date(Date.now() - 2 * 86_400_000).toISOString());
+    (await SET("backupFrequency", "daily"));
+    (await SET("backupTimeOfDay", "00:00"));
+    (await SET("backupLastRunAt", new Date(Date.now() - 2 * 86_400_000).toISOString()));
     const before = jsonFiles().length;
 
     const res = await runScheduledBackup(false);
 
     expect(res).toEqual({ ok: true, code: "ok" });
     expect(jsonFiles().length).toBe(before + 1);
-    expect(KV().backupLastRunAt).not.toBe(new Date(Date.now() - 2 * 86_400_000).toISOString());
+    expect((await KV()).backupLastRunAt).not.toBe(new Date(Date.now() - 2 * 86_400_000).toISOString());
   });
 
   it("skips silently when disabled", async () => {
-    SET("backupEnabled", "false");
-    SET("backupLastRunAt", new Date(Date.now() - 30 * 86_400_000).toISOString());
+    (await SET("backupEnabled", "false"));
+    (await SET("backupLastRunAt", new Date(Date.now() - 30 * 86_400_000).toISOString()));
     const before = jsonFiles().length;
 
     const res = await runScheduledBackup(false);
@@ -110,9 +109,9 @@ describe("runScheduledBackup (integration)", () => {
   });
 
   it("skips silently when not yet due", async () => {
-    SET("backupEnabled", "true");
+    (await SET("backupEnabled", "true"));
     // Ran 1 minute ago — today's 00:00 slot already covered.
-    SET("backupLastRunAt", new Date(Date.now() - 60_000).toISOString());
+    (await SET("backupLastRunAt", new Date(Date.now() - 60_000).toISOString()));
     const before = jsonFiles().length;
 
     const res = await runScheduledBackup(false);
@@ -122,9 +121,9 @@ describe("runScheduledBackup (integration)", () => {
   });
 
   it("honors the 1h error backoff after a failure", async () => {
-    SET("backupEnabled", "true");
-    SET("backupLastRunAt", new Date(Date.now() - 2 * 86_400_000).toISOString());
-    SET("backupLastErrorAt", new Date(Date.now() - 5 * 60_000).toISOString());
+    (await SET("backupEnabled", "true"));
+    (await SET("backupLastRunAt", new Date(Date.now() - 2 * 86_400_000).toISOString()));
+    (await SET("backupLastErrorAt", new Date(Date.now() - 5 * 60_000).toISOString()));
     const before = jsonFiles().length;
 
     const res = await runScheduledBackup(false);
@@ -134,9 +133,9 @@ describe("runScheduledBackup (integration)", () => {
   });
 
   it("never runs while the lock is held (backup/restore mutual exclusion)", async () => {
-    SET("backupEnabled", "true");
-    SET("backupLastRunAt", new Date(Date.now() - 2 * 86_400_000).toISOString());
-    SET("backupLastErrorAt", "");
+    (await SET("backupEnabled", "true"));
+    (await SET("backupLastRunAt", new Date(Date.now() - 2 * 86_400_000).toISOString()));
+    (await SET("backupLastErrorAt", ""));
     const before = jsonFiles().length;
 
     expect(acquireBackupLock()).toBe(true);
@@ -150,7 +149,7 @@ describe("runScheduledBackup (integration)", () => {
   });
 
   it("applies retention: keeps only the newest N artifacts", async () => {
-    SET("backupRetentionCount", "1");
+    (await SET("backupRetentionCount", "1"));
     // Two older artifacts placed out-of-band; the run must prune to 1 total.
     writeFileSync(path.join(dir, "linkbreeze-backup-20260101T000000.json"), "{}");
     writeFileSync(path.join(dir, "linkbreeze-backup-20260102T000000.json"), "{}");

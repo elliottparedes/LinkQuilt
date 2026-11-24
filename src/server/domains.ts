@@ -1,11 +1,12 @@
 import "server-only";
 
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 
 import { db } from "@/db";
 import { domains, pages, settings } from "@/db/schema";
 import {
   normalizeHost,
+  getCanonicalPageSlugs,
   type DomainBinding,
   type DomainPolicy,
   type DomainScope,
@@ -25,7 +26,9 @@ import {
 // ── Policy ───────────────────────────────────────────────────────────────
 
 export async function getDomainPolicy(): Promise<DomainPolicy> {
-  const rows = await db.select().from(settings);
+  const rows = await db.select().from(settings).where(inArray(settings.key, [
+    "domainsPrimaryHost", "domainsAdminLock", "domainsUnknownFallback", "domainsWwwPolicy", "domainsCanonical",
+  ]));
   const map = new Map(rows.map((r) => [r.key, r.value]));
 
   // env beats the DB: primary host is deployment topology, like PORT.
@@ -65,20 +68,15 @@ export async function saveDomainPolicy(partial: {
   if (partial.wwwPolicy !== undefined) entries.push(["domainsWwwPolicy", partial.wwwPolicy]);
   if (partial.canonical !== undefined) entries.push(["domainsCanonical", partial.canonical]);
 
-  for (const [key, value] of entries) {
-    const existing = await db.select().from(settings).where(eq(settings.key, key)).limit(1);
-    if (existing[0]) {
-      await db.update(settings).set({ value }).where(eq(settings.key, key));
-    } else {
-      await db.insert(settings).values({ key, value });
-    }
-  }
+  if (!entries.length) return;
+  await db.insert(settings).values(entries.map(([key, value]) => ({ key, value })))
+    .onConflictDoUpdate({ target: settings.key, set: { value: sql`excluded.value` } });
 }
 
 // ── Bindings (proxy read path) ───────────────────────────────────────────
 
 /** Every binding joined with its page slug — one indexed query. */
-export async function getDomainBindings(): Promise<DomainBinding[]> {
+export async function getDomainBindings(filter?: SQL): Promise<DomainBinding[]> {
   const rows = await db
     .select({
       id: domains.id,
@@ -91,6 +89,7 @@ export async function getDomainBindings(): Promise<DomainBinding[]> {
     })
     .from(domains)
     .innerJoin(pages, eq(pages.id, domains.pageId))
+    .where(filter)
     .orderBy(asc(domains.id));
 
   return rows.map((r) => ({
@@ -106,6 +105,16 @@ export async function getDomainBindings(): Promise<DomainBinding[]> {
   }));
 }
 
+/** Direct host bindings, any canonical alias targets, and the requested slug. */
+export async function getRequestDomainBindings(host: string, pathname: string): Promise<DomainBinding[]> {
+  const hosts = host.startsWith("www.") ? [host, host.slice(4)] : [host];
+  const slugs = getCanonicalPageSlugs(pathname);
+  const hostPages = db.select({ pageId: domains.pageId }).from(domains).where(inArray(domains.host, hosts));
+  const slugPages = db.select({ pageId: pages.id }).from(pages)
+    .where(inArray(sql`lower(${pages.slug} COLLATE "C")`, slugs));
+  return getDomainBindings(inArray(domains.pageId, slugs.length ? hostPages.union(slugPages) : hostPages));
+}
+
 /** pageId → scope for the pages referenced by the given bindings. */
 export async function getDomainScopeMap(
   bindings: DomainBinding[],
@@ -113,11 +122,9 @@ export async function getDomainScopeMap(
   const map = new Map<number, DomainScope>();
   if (bindings.length === 0) return map;
   const pageIds = [...new Set(bindings.map((b) => b.pageId))];
-  const rows = await db.select({ id: pages.id, scope: pages.domainScope }).from(pages);
+  const rows = await db.select({ id: pages.id, scope: pages.domainScope }).from(pages).where(inArray(pages.id, pageIds));
   for (const row of rows) {
-    if (pageIds.includes(row.id)) {
-      map.set(row.id, row.scope === "hub" ? "hub" : "exclusive");
-    }
+    map.set(row.id, row.scope === "hub" ? "hub" : "exclusive");
   }
   return map;
 }
@@ -133,8 +140,8 @@ export async function getServingBindingForHost(
 ): Promise<DomainBinding | null> {
   const normalized = normalizeHost(host);
   if (!normalized) return null;
-  const bindings = await getDomainBindings();
-  return bindings.find((b) => b.host === normalized && b.behavior === "serve") ?? null;
+  const bindings = await getDomainBindings(eq(domains.host, normalized));
+  return bindings.find((b) => b.behavior === "serve") ?? null;
 }
 
 // ── Admin CRUD ───────────────────────────────────────────────────────────
@@ -240,12 +247,9 @@ export async function isSlugServedOnHost(
 ): Promise<boolean> {
   const normalized = normalizeHost(host);
   if (!normalized) return true;
-  const bindings = await getDomainBindings();
-  const binding = bindings.find(
-    (b) => b.host === normalized && b.behavior === "serve",
-  );
+  const binding = await getServingBindingForHost(normalized);
   if (!binding) return true;
-  const scopeMap = await getDomainScopeMap(bindings);
+  const scopeMap = await getDomainScopeMap([binding]);
   if ((scopeMap.get(binding.pageId) ?? "exclusive") === "hub") return true;
   return binding.pageSlug === slug;
 }

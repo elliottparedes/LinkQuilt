@@ -47,12 +47,15 @@ describe("stalled-body fetches cannot hang a link save", () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "lb-fetch-timeout-"));
     process.env.UPLOAD_DIR = tmpDir;
     vi.resetModules();
+    vi.spyOn(fs, "access").mockRejectedValue(new Error("No cached favicon"));
+    vi.spyOn(fs, "mkdir").mockResolvedValue(undefined);
     vi.useFakeTimers();
     stubStalledFetch();
   });
 
   afterEach(async () => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete process.env.UPLOAD_DIR;
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});

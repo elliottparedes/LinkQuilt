@@ -1,5 +1,7 @@
 # ADR-0003: Use SQLite instead of PostgreSQL
 
+Superseded for LinkQuilt 2.0 by the [PostgreSQL deployment and upgrade guide](../dokploy.md).
+
 **Status**: Accepted
 **Date**: 2026-06-28
 

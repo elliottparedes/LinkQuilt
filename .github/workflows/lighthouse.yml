@@ -15,6 +15,17 @@ permissions:
 jobs:
   lighthouse:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: linkbreeze
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 3s --health-retries 12
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -32,7 +43,6 @@ jobs:
       - name: Build with retry
         env:
           SECRET_KEY: "ci-lighthouse-secret-key-not-for-production"
-          DATABASE_PATH: "/tmp/lighthouse-linkbreeze.db"
           NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           for i in 1 2 3; do
@@ -67,16 +77,16 @@ jobs:
           npx wait-on http://localhost:3000/setup --timeout 60000
           # Give the default page real content so Lighthouse audits a
           # realistic public page, not an empty one.
-          node -e "const Database=require('better-sqlite3');new Database(process.env.DATABASE_PATH).prepare('UPDATE pages SET title=?, bio=?').run('Lighthouse Test','Test page for Lighthouse CI');console.log('[lighthouse] page content seeded')"
+          node -e 'const client = new (require("pg").Client)({connectionString: process.env.DATABASE_URL}); (async () => { await client.connect(); try { await client.query("UPDATE pages SET title = $1, bio = $2", ["Lighthouse Test", "Test page for Lighthouse CI"]); } finally { await client.end(); } })().catch(error => { console.error(error); process.exitCode = 1; });'
           # Create the bootstrap admin through the app's own first-run API;
-          # afterwards / serves the default public page (307 -> /u).
+          # afterwards / serves the public page named for the admin.
           curl -sf -X POST http://localhost:3000/api/setup \
             -H 'Content-Type: application/json' \
             -d '{"username":"test","password":"LighthouseCI123"}'
-          npx wait-on http://localhost:3000/u --timeout 60000
+          npx wait-on http://localhost:3000/test --timeout 60000
         env:
           SECRET_KEY: "ci-lighthouse-secret-key-not-for-production"
-          DATABASE_PATH: "/tmp/lighthouse-linkbreeze.db"
+          DATABASE_URL: postgresql://postgres:ci@127.0.0.1:5432/linkbreeze
           PORT: "3000"
 
       - name: Run Lighthouse CI

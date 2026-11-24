@@ -15,7 +15,7 @@ export default async function OpsPage() {
   if (!caps.manageInstance) redirect("/dashboard");
 
   const t = await getTranslations("ops");
-  const snap = getOpsSnapshot();
+  const snap = await getOpsSnapshot();
 
   const processRows = [
     [t("version"), snap.version],

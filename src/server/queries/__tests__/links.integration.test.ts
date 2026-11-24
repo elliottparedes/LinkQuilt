@@ -9,7 +9,7 @@ import "./integration-setup"; // sets up temp DB, runs migrations, seeds helpers
 import { seedPage, db } from "./integration-setup";
 import * as schema from "@/db/schema";
 
-// Import queries AFTER integration-setup has set DATABASE_PATH
+// Import queries AFTER integration-setup has initialized PostgreSQL
 import {
   createLink,
   updateLink,
@@ -23,8 +23,8 @@ import { eq } from "drizzle-orm";
 
 let pageId: number;
 
-beforeAll(() => {
-  const page = seedPage();
+beforeAll(async () => {
+  const page = (await seedPage());
   pageId = page.id;
 });
 
@@ -149,7 +149,7 @@ describe("[integration] getAllLinks (admin view)", () => {
       type: "url",
     });
     // Deactivate it
-    await db.update(schema.links).set({ isActive: false }).where(eq(schema.links.id, inactiveLink.id)).run();
+    await db.update(schema.links).set({ isActive: false }).where(eq(schema.links.id, inactiveLink.id));
 
     const allLinks = await getAllLinks(pageId);
     expect(allLinks.some((l) => l.id === activeLink.id)).toBe(true);

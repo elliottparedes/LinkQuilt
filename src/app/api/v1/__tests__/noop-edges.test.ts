@@ -48,13 +48,13 @@ const idParams = (id: number) => ({ params: Promise.resolve({ id: String(id) }) 
 
 beforeAll(async () => {
   KEY = (await createApiKey()).key;
-  const pageId = seedPage({ slug: "noop-page", title: "Noop Page" }).id;
-  linkId = seedLink({
+  const pageId = (await seedPage({ slug: "noop-page", title: "Noop Page" })).id;
+  linkId = (await seedLink({
     title: "Noop link",
     url: "https://noop.example",
     pageId,
     orderIndex: 0,
-  }).id;
+  })).id;
   sectionId = (await createSection({ pageId, title: "Noop section" })).id;
 });
 

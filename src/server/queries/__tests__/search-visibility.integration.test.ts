@@ -17,9 +17,9 @@ vi.mock("next/headers", () => ({
   ),
 }));
 
-// MUST be the first non-vitest import: it registers the sql.js vi.mock("@/db").
+// MUST be the first non-vitest import: it registers the PostgreSQL vi.mock("@/db").
 // Any module imported before it (@/app/robots, the sitemap route, @/server/queries)
-// binds the REAL better-sqlite3 file DB — works locally against the dev DB but
+// binds the runtime PostgreSQL database — works locally against the dev DB but
 // dies in CI ("no such table: settings") where data/linkbreeze.db starts empty.
 import "@/server/queries/__tests__/integration-setup";
 

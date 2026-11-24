@@ -18,7 +18,7 @@ function utcStamp(date: Date): string {
 
 describe("[integration] campaign analytics", () => {
   it("groups page views by the ?s= tag and keeps untagged visits separate", async () => {
-    const page = seedPage({ slug: "sources", title: "Sources" });
+    const page = (await seedPage({ slug: "sources", title: "Sources" }));
     await recordPageview("a", null, "mobile", null, page.id, "ig");
     await recordPageview("b", null, "mobile", null, page.id, "ig");
     await recordPageview("c", null, "desktop", null, page.id, null);
@@ -30,12 +30,12 @@ describe("[integration] campaign analytics", () => {
   });
 
   it("stores the campaign tag on a click without counting a social tap as one", async () => {
-    const page = seedPage({ slug: "clicks", title: "Clicks" });
-    const link = seedLink({ pageId: page.id, title: "Shop", url: "https://shop.example", orderIndex: 0 });
+    const page = (await seedPage({ slug: "clicks", title: "Clicks" }));
+    const link = (await seedLink({ pageId: page.id, title: "Shop", url: "https://shop.example", orderIndex: 0 }));
     await recordClick(link.id, "visitor", null, "click", null, "yt");
     await recordSocialClick(page.id, "instagram", "visitor", "ig");
 
-    const stored = db.select().from(analyticsClicks).where(eq(analyticsClicks.linkId, link.id)).all();
+    const stored = (await db.select().from(analyticsClicks).where(eq(analyticsClicks.linkId, link.id)));
     expect(stored).toHaveLength(1);
     expect(stored[0].source).toBe("yt");
 
@@ -47,10 +47,10 @@ describe("[integration] campaign analytics", () => {
   });
 
   it("nudges when a lower link converts better than the one at the top of the page", async () => {
-    const page = seedPage({ slug: "rates", title: "Rates" });
-    const top = seedLink({ pageId: page.id, title: "About", url: "https://about.example", orderIndex: 0 });
-    const lower = seedLink({ pageId: page.id, title: "Shop", url: "https://shop.example", orderIndex: 1 });
-    seedLink({ pageId: page.id, title: "Spacer", url: "", type: "divider", orderIndex: 2 });
+    const page = (await seedPage({ slug: "rates", title: "Rates" }));
+    const top = (await seedLink({ pageId: page.id, title: "About", url: "https://about.example", orderIndex: 0 }));
+    const lower = (await seedLink({ pageId: page.id, title: "Shop", url: "https://shop.example", orderIndex: 1 }));
+    (await seedLink({ pageId: page.id, title: "Spacer", url: "", type: "divider", orderIndex: 2 }));
 
     for (let i = 0; i < 10; i++) await recordPageview(`v-${i}`, null, "desktop", null, page.id, null);
     await recordClick(top.id, "once", null);
@@ -64,18 +64,17 @@ describe("[integration] campaign analytics", () => {
   });
 
   it("buckets views onto the UTC weekday and hour they happened", async () => {
-    const page = seedPage({ slug: "heat", title: "Heat" });
+    const page = (await seedPage({ slug: "heat", title: "Heat" }));
     const at = new Date();
     at.setUTCMinutes(15, 0, 0);
-    db.insert(analyticsPageviews)
+    (await db.insert(analyticsPageviews)
       .values({
         pageId: page.id,
         visitorHash: "heat",
         deviceType: "desktop",
         source: "x",
         createdAt: utcStamp(at),
-      })
-      .run();
+      }));
 
     const cells = await getViewHeatmap("7d", page.id);
     const match = cells.find((cell) => cell.dow === at.getUTCDay() && cell.hour === at.getUTCHours());
@@ -83,29 +82,27 @@ describe("[integration] campaign analytics", () => {
   });
 
   it("lists the newest view, click, and social tap first", async () => {
-    const page = seedPage({ slug: "activity", title: "Activity" });
-    const link = seedLink({ pageId: page.id, title: "Shop", url: "https://shop.example" });
+    const page = (await seedPage({ slug: "activity", title: "Activity" }));
+    const link = (await seedLink({ pageId: page.id, title: "Shop", url: "https://shop.example" }));
     const older = new Date(Date.now() - 3 * 60 * 60 * 1000);
     const newer = new Date(Date.now() - 60 * 1000);
 
-    db.insert(analyticsPageviews)
+    (await db.insert(analyticsPageviews)
       .values({
         pageId: page.id,
         visitorHash: "view",
         deviceType: "mobile",
         source: "ig",
         createdAt: utcStamp(older),
-      })
-      .run();
-    db.insert(analyticsClicks)
+      }));
+    (await db.insert(analyticsClicks)
       .values({
         linkId: link.id,
         visitorHash: "click",
         eventType: "click",
         source: "ig",
         createdAt: utcStamp(newer),
-      })
-      .run();
+      }));
     await recordSocialClick(page.id, "youtube", "tap", "yt");
 
     const activity = await getRecentActivity("7d", page.id);

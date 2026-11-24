@@ -64,13 +64,12 @@ const running5050: AbConfig = {
   winner: null,
 };
 
-function variantCounts(linkId: number) {
-  return db
-    .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)` })
+async function variantCounts(linkId: number) {
+  return (await db
+    .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)`.mapWith(Number) })
     .from(analyticsClicks)
     .where(eq(analyticsClicks.linkId, linkId))
-    .groupBy(analyticsClicks.variant)
-    .all();
+    .groupBy(analyticsClicks.variant));
 }
 
 // db import kept local to the helper's module scope via integration-setup.
@@ -88,10 +87,10 @@ describe("[integration] weight change mid-run (#81 E.59)", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.mocked(isBot).mockReturnValue(false);
 
-    const link = seedLink({
+    const link = (await seedLink({
       url: "https://example.com/a",
       abConfig: serializeAbConfig(running5050),
-    });
+    }));
 
     // One visitor living on BOTH sides across the two configs: A at 50/50
     // (bucket b < 50) and B at 1/99 (bucket b >= 1) -> b in [1, 49].
@@ -108,7 +107,7 @@ describe("[integration] weight change mid-run (#81 E.59)", () => {
     await recordClick(link.id, "hist-b-1", null, "click", "B");
     await recordClick(link.id, "hist-b-2", null, "click", "B");
     await recordClick(link.id, "hist-b-3", null, "click", "B");
-    expect(variantCounts(link.id)).toEqual([
+    expect((await variantCounts(link.id))).toEqual([
       { variant: "A", c: 2 },
       { variant: "B", c: 3 },
     ]);
@@ -117,11 +116,11 @@ describe("[integration] weight change mid-run (#81 E.59)", () => {
     // human click is RECORDED under the old config's label.
     const before = await go(link.id, visitor!);
     expect(before.headers.get("location")).toBe("https://example.com/a");
-    expect(variantCounts(link.id)).toEqual([
+    expect((await variantCounts(link.id))).toEqual([
       { variant: "A", c: 3 }, // 2 direct + 1 from the before-GET (old label A)
       { variant: "B", c: 3 },
     ]);
-    const preResave = variantCounts(link.id);
+    const preResave = (await variantCounts(link.id));
 
     // Re-save during the RUNNING test: flip to 1/99.
     const fd = new FormData();
@@ -137,7 +136,7 @@ describe("[integration] weight change mid-run (#81 E.59)", () => {
 
     // Config is the new one, still RUNNING (re-save preserves status).
     const stored = parseAbConfig(
-      db.select({ abConfig: links.abConfig }).from(links).where(eq(links.id, link.id)).get()
+      (await db.select({ abConfig: links.abConfig }).from(links).where(eq(links.id, link.id)).limit(1))[0]
         ?.abConfig ?? null,
     );
     expect(stored?.weightA).toBe(1);
@@ -146,7 +145,7 @@ describe("[integration] weight change mid-run (#81 E.59)", () => {
 
     // CLAIM 1: history untouched — identical to the pre-resave snapshot
     // (the before-GET's recorded click stays under its OLD label).
-    expect(variantCounts(link.id)).toEqual(preResave);
+    expect((await variantCounts(link.id))).toEqual(preResave);
 
     // CLAIM 2: SAME visitor, NEXT request -> the NEW split (now B side).
     const after = await go(link.id, visitor!);

@@ -66,7 +66,7 @@ const idParams = (id: number | string) => ({
 
 beforeAll(async () => {
   KEY = (await createApiKey()).key;
-  pageId = seedPage({ slug: "stale-page", title: "Stale Page" }).id;
+  pageId = (await seedPage({ slug: "stale-page", title: "Stale Page" })).id;
 });
 
 describe("E.26 API writes are immediately visible through the queries layer", () => {
@@ -174,6 +174,6 @@ describe("E.26 API writes are immediately visible through the queries layer", ()
     const viaQueries = await getAllLinks();
     expect(routeRows.map((r) => r.id)).toEqual(viaQueries.map((r) => r.id));
     // sanity: the db is real
-    expect(db.select().from(schema.links).all().length).toBe(viaQueries.length);
+    expect((await db.select().from(schema.links)).length).toBe(viaQueries.length);
   });
 });

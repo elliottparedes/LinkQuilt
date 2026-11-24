@@ -275,7 +275,7 @@ export async function uploadCustomFont(formData: FormData): Promise<CustomFontUp
   const dest = path.join(UPLOADS_DIR, filename);
 
   try {
-    await writeFile(dest, buffer);
+    await writeFile(/* turbopackIgnore: true */ dest, buffer);
   } catch {
     return validationError("Could not store the font file. Check disk space and permissions.");
   }

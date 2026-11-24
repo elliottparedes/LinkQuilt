@@ -1,6 +1,6 @@
 /**
  * #4 — /api/v1/links route tests: direct handler invocation against the
- * sql.js in-memory DB (integration-setup harness mocked @/db BEFORE the
+ * disposable PostgreSQL database (integration-setup harness mocked @/db BEFORE the
  * queries module loads — import order matters: bare side-effect import first,
  * queries via the @/server/queries alias after).
  *
@@ -64,7 +64,7 @@ const idParams = (id: number | string) => ({ params: Promise.resolve({ id: Strin
 beforeAll(async () => {
   const created = await createApiKey();
   KEY = created.key;
-  pageId = seedPage().id;
+  pageId = (await seedPage()).id;
 });
 
 afterEach(() => {
@@ -77,7 +77,7 @@ describe("GET /api/v1/links", () => {
     expect(denied.status).toBe(401);
     expect((await denied.json()).error.code).toBe("unauthorized");
 
-    seedLink({ title: "Listed link", url: "https://listed.example", pageId });
+    (await seedLink({ title: "Listed link", url: "https://listed.example", pageId }));
     const res = await listLinks(req("/api/v1/links"));
     expect(res.status).toBe(200);
     expect(res.headers.get("x-ratelimit-limit")).toBe("120");
@@ -212,7 +212,7 @@ describe("POST /api/v1/links", () => {
 
 describe("PUT /api/v1/links/:id", () => {
   it("partial update writes only present keys (tri-state merge)", async () => {
-    const link = seedLink({ title: "Orig", url: "https://orig.example", description: "keep me", pageId });
+    const link = (await seedLink({ title: "Orig", url: "https://orig.example", description: "keep me", pageId }));
     const res = await updateLinkRoute(
       req(`/api/v1/links/${link.id}`, { method: "PUT", body: { title: "Renamed" } }),
       idParams(link.id),
@@ -225,7 +225,7 @@ describe("PUT /api/v1/links/:id", () => {
   });
 
   it("explicit null clears a nullable field", async () => {
-    const link = seedLink({ title: "Clearable", url: "https://clr.example", description: "gone", pageId });
+    const link = (await seedLink({ title: "Clearable", url: "https://clr.example", description: "gone", pageId }));
     const res = await updateLinkRoute(
       req(`/api/v1/links/${link.id}`, { method: "PUT", body: { description: null } }),
       idParams(link.id),
@@ -235,7 +235,7 @@ describe("PUT /api/v1/links/:id", () => {
   });
 
   it("validates the MERGED result (type change can invalidate stored url)", async () => {
-    const link = seedLink({ title: "U", url: "https://u.example", type: "url", pageId });
+    const link = (await seedLink({ title: "U", url: "https://u.example", type: "url", pageId }));
     const res = await updateLinkRoute(
       req(`/api/v1/links/${link.id}`, { method: "PUT", body: { type: "divider" } }),
       idParams(link.id),
@@ -246,7 +246,7 @@ describe("PUT /api/v1/links/:id", () => {
   });
 
   it("ignores mass-assignment attempts on update", async () => {
-    const link = seedLink({ title: "Safe", url: "https://safe.example", pageId });
+    const link = (await seedLink({ title: "Safe", url: "https://safe.example", pageId }));
     const res = await updateLinkRoute(
       req(`/api/v1/links/${link.id}`, {
         method: "PUT",
@@ -262,7 +262,7 @@ describe("PUT /api/v1/links/:id", () => {
   });
 
   it("validates lucide icon names and 404s unknown ids / 400s bad ids", async () => {
-    const link = seedLink({ title: "Ico", url: "https://ico.example", pageId });
+    const link = (await seedLink({ title: "Ico", url: "https://ico.example", pageId }));
 
     const good = await updateLinkRoute(
       req(`/api/v1/links/${link.id}`, {
@@ -300,12 +300,12 @@ describe("PUT /api/v1/links/:id", () => {
 
 describe("DELETE /api/v1/links/:id", () => {
   it("deletes an existing link and 404s an unknown one", async () => {
-    const link = seedLink({ title: "Doomed", url: "https://doomed.example", pageId });
+    const link = (await seedLink({ title: "Doomed", url: "https://doomed.example", pageId }));
     const res = await deleteLinkRoute(req(`/api/v1/links/${link.id}`, { method: "DELETE" }), idParams(link.id));
     expect(res.status).toBe(200);
     expect((await res.json()).data.deleted).toBe(true);
 
-    const rows = db.select().from(schema.links).all();
+    const rows = (await db.select().from(schema.links));
     expect(rows.some((l) => l.id === link.id)).toBe(false);
 
     const missing = await deleteLinkRoute(
@@ -318,16 +318,16 @@ describe("DELETE /api/v1/links/:id", () => {
 
 describe("PUT /api/v1/links/reorder", () => {
   it("applies the given order and validates the payload", async () => {
-    const a = seedLink({ title: "A", url: "https://a2.example", pageId });
-    const b = seedLink({ title: "B", url: "https://b2.example", pageId });
-    const c = seedLink({ title: "C", url: "https://c2.example", pageId });
+    const a = (await seedLink({ title: "A", url: "https://a2.example", pageId }));
+    const b = (await seedLink({ title: "B", url: "https://b2.example", pageId }));
+    const c = (await seedLink({ title: "C", url: "https://c2.example", pageId }));
 
     const res = await reorderRoute(
       req("/api/v1/links/reorder", { method: "PUT", body: { ids: [c.id, b.id, a.id] } }),
     );
     expect(res.status).toBe(200);
 
-    const rows = db.select().from(schema.links).all();
+    const rows = (await db.select().from(schema.links));
     const byId = new Map(rows.map((r) => [r.id, r]));
     expect(byId.get(c.id)!.orderIndex).toBe(0);
     expect(byId.get(b.id)!.orderIndex).toBe(1);
@@ -345,11 +345,10 @@ describe("PUT /api/v1/links/reorder", () => {
   });
 
   it("E.81: an unknown id is a silent no-op (200 counts INPUT ids; existing rows unchanged)", async () => {
-    const anchor = seedLink({ title: "E81 anchor", url: "https://e81.example", pageId });
-    const orderBefore = db
+    const anchor = (await seedLink({ title: "E81 anchor", url: "https://e81.example", pageId }));
+    const orderBefore = (await db
       .select()
-      .from(schema.links)
-      .all()
+      .from(schema.links))
       .reduce<Record<number, number>>((m, r) => ({ ...m, [r.id]: r.orderIndex }), {});
 
     const res = await reorderRoute(
@@ -359,7 +358,7 @@ describe("PUT /api/v1/links/reorder", () => {
     // `reordered` counts the ids ACCEPTED from the input, not verified rows.
     expect((await res.json()).data).toEqual({ reordered: 1 });
 
-    const rowsAfter = db.select().from(schema.links).all();
+    const rowsAfter = (await db.select().from(schema.links));
     expect(rowsAfter.length).toBe(Object.keys(orderBefore).length);
     expect(
       rowsAfter.reduce<Record<number, number>>(
@@ -373,7 +372,7 @@ describe("PUT /api/v1/links/reorder", () => {
 
 describe("GET /api/v1/links/:id (E.11 single-link read)", () => {
   it("returns the link with an ETag and answers a replay with 304", async () => {
-    const seed = seedLink({ title: "Single read", url: "https://single.example", pageId });
+    const seed = (await seedLink({ title: "Single read", url: "https://single.example", pageId }));
 
     const first = await getLinkRoute(
       req(`/api/v1/links/${seed.id}`),
@@ -401,7 +400,7 @@ describe("GET /api/v1/links/:id (E.11 single-link read)", () => {
   });
 
   it("If-None-Match roundtrip → 304; PUT invalidates it", async () => {
-    const seed = seedLink({ title: "Conditional one", url: "https://cond.example", pageId });
+    const seed = (await seedLink({ title: "Conditional one", url: "https://cond.example", pageId }));
 
     const first = await getLinkRoute(
       req(`/api/v1/links/${seed.id}`),

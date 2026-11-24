@@ -77,9 +77,21 @@ describe("[integration] account page paths", () => {
     const home = await getPageBySlug("case-test");
     await updatePage(home!.id, { slug: "custom-home" });
     await provisionAccountPage(second.id, second.username);
-    expect(getAccountPageNamespace(first.id)).toBe("case-test");
-    expect(getAccountPageNamespace(second.id)).toBe("case-test-2");
+    expect((await getAccountPageNamespace(first.id))).toBe("case-test");
+    expect((await getAccountPageNamespace(second.id))).toBe("case-test-2");
     await expect(updatePage(home!.id, { slug: "case-test-2" })).rejects.toThrow("already exists");
+  });
+
+  it("reserves distinct paths when simultaneous accounts normalize to the same namespace", async () => {
+    const [first, second] = await Promise.all([
+      createUser("Parallel_Test", "test"),
+      createUser("parallel-test", "test"),
+    ]);
+    const paths = await Promise.all([first, second].map(async (user) => {
+      await provisionAccountPage(user.id, user.username);
+      return getAccountPageNamespace(user.id);
+    }));
+    expect(paths.sort()).toEqual(["parallel-test", "parallel-test-2"]);
   });
 
   it("keeps preserved pages out of a replacement account's namespace", async () => {

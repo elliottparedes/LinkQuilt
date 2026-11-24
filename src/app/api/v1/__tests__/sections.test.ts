@@ -59,8 +59,8 @@ async function createVia(
 beforeAll(async () => {
   KEY = (await createApiKey()).key;
   // seedPage's default slug is "test-page" — every seed needs its own.
-  pageId = seedPage({ slug: "api-sections-page", title: "API Sections Page" }).id;
-  otherPageId = seedPage({ slug: "api-sections-other", title: "Other Page" }).id;
+  pageId = (await seedPage({ slug: "api-sections-page", title: "API Sections Page" })).id;
+  otherPageId = (await seedPage({ slug: "api-sections-other", title: "Other Page" })).id;
 });
 
 afterEach(() => {
@@ -230,12 +230,12 @@ describe("PUT /api/v1/sections/:id", () => {
 describe("DELETE /api/v1/sections/:id", () => {
   it("deletes and its links fall back to uncategorized (never lost)", async () => {
     const s = await createVia("Doomed section", pageId);
-    const link = seedLink({
+    const link = (await seedLink({
       title: "Sectioned link",
       url: "https://sectioned.example",
       pageId,
       sectionId: s.id,
-    });
+    }));
 
     const res = await deleteSectionRoute(
       req(`/api/v1/sections/${s.id}`, { method: "DELETE" }),
@@ -244,10 +244,9 @@ describe("DELETE /api/v1/sections/:id", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).data).toMatchObject({ id: s.id, deleted: true });
 
-    const rows = db
+    const rows = (await db
       .select()
-      .from(schema.links)
-      .all()
+      .from(schema.links))
       .filter((l) => l.id === link.id);
     expect(rows[0].sectionId).toBeNull();
 
@@ -383,10 +382,9 @@ describe("E.101 sections ordering tie-break (equal orderIndex → id ascending)"
     expect(a.id).toBeLessThan(b.id); // creation order → id order
 
     // Force an exact tie (same-second admin writes can produce this).
-    db.update(schema.linkSections)
+    (await db.update(schema.linkSections)
       .set({ orderIndex: a.orderIndex })
-      .where(eq(schema.linkSections.id, b.id))
-      .run();
+      .where(eq(schema.linkSections.id, b.id)));
 
     const all = await listSections(req("/api/v1/sections"));
     const allIds: number[] = (await all.json()).data.map((s: { id: number }) => s.id);

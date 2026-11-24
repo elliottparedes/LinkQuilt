@@ -1,45 +1,48 @@
-/**
- * Integration test setup — creates a fresh in-memory SQLite DB using sql.js
- * (pure WASM, no native module) for each test file.
- *
- * This module mocks @/db to use a sql.js connection with drizzle-orm,
- * so the queries module talks to a real SQLite engine without needing
- * the broken better-sqlite3 native binary.
- */
-import { vi } from "vitest";
-import initSqlJs from "sql.js";
-import { drizzle } from "drizzle-orm/sql-js";
-import { migrate } from "drizzle-orm/sql-js/migrator";
-import * as path from "node:path";
+/** Each test file gets its own PostgreSQL database on the test server. */
+import { afterAll, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { Client, Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { initializePostgres, migratePostgres } from "@/db/bootstrap.mjs";
 import * as schema from "@/db/schema";
 
-// Initialize sql.js (WASM) and create an in-memory database
-const SQL = await initSqlJs();
-const sqliteDb = new SQL.Database();
+const connectionString = process.env.TEST_DATABASE_URL;
+if (!connectionString) throw new Error("Set TEST_DATABASE_URL to a disposable PostgreSQL server with a CREATEDB role.");
+const database = `linkbreeze_test_${randomUUID().replaceAll("-", "")}`;
+const admin = new Client({ connectionString, connectionTimeoutMillis: 2_000 });
+await admin.connect();
+await admin.query(`CREATE DATABASE "${database}"`);
+const testUrl = new URL(connectionString);
+testUrl.pathname = `/${database}`;
+const pool = new Pool({ connectionString: testUrl.toString(), max: 3 });
+let queryCount = 0;
+const db = drizzle(pool, { schema, logger: { logQuery: () => { queryCount++; } } });
 
-// Match production (src/db/index.ts): enforce FK constraints, otherwise a
-// buggy write like sectionId=0 (#86) would slip through tests silently.
-sqliteDb.run("PRAGMA foreign_keys = ON");
-
-// Create drizzle instance with our schema
-const db = drizzle(sqliteDb, { schema });
-
-// Run migrations on the temp DB
-const migrationsFolder = path.join(process.cwd(), "src", "db", "migrations");
-try {
-  migrate(db, { migrationsFolder });
-} catch {
-  // If migrations fail, try reading and executing SQL files directly
-  const fs = await import("node:fs");
-  const files = fs.readdirSync(migrationsFolder).filter(f => f.endsWith(".sql")).sort();
-  for (const f of files) {
-    const sql = fs.readFileSync(path.join(migrationsFolder, f), "utf-8");
-    sqliteDb.run(sql);
-  }
+export async function countQueries(work: () => Promise<void>): Promise<number> {
+  const before = queryCount;
+  await work();
+  return queryCount - before;
 }
 
-// Mock @/db so all queries go through our sql.js connection
-vi.mock("@/db", () => ({ db, schema }));
+afterAll(async () => {
+  await pool.end();
+  try {
+    await admin.query(`DROP DATABASE "${database}"`);
+  } finally {
+    await admin.end();
+  }
+});
+
+const client = await pool.connect();
+try {
+  await migratePostgres(client);
+  await initializePostgres(client, false);
+} finally {
+  client.release();
+}
+await db.insert(schema.users).values({ username: "admin", passwordHash: "seed", role: "admin" });
+
+vi.mock("@/db", () => ({ db, pool, schema }));
 // Mock the singleton that was already loaded
 vi.mock("@/lib/auth", () => ({
   getSession: vi.fn(async () => ({ userId: 1, username: "admin", exp: Date.now() + 60000, pv: 1 })),
@@ -49,22 +52,10 @@ vi.mock("@/lib/auth", () => ({
   destroySession: vi.fn(async () => {}),
 }));
 
-// #124: the capability gates resolve the session user's role ROW from the DB.
-// Seed the admin (role text 'admin'; role_id NULL maps through the legacy
-// text to ADMIN capabilities) so instance-level actions are authorized.
-try {
-  db.insert(schema.users).values({ username: "admin", passwordHash: "seed", role: "admin" }).run();
-} catch {
-  // already seeded (hot module reload)
-}
-
-// Re-export for use in tests
 export { db, schema };
 
-// ─── Seed helpers ─────────────────────────────────────────
-
-export function seedPage(overrides: Partial<typeof schema.pages.$inferInsert> = {}) {
-  return db
+export async function seedPage(overrides: Partial<typeof schema.pages.$inferInsert> = {}) {
+  return (await db
     .insert(schema.pages)
     .values({
       slug: "test-page",
@@ -75,12 +66,11 @@ export function seedPage(overrides: Partial<typeof schema.pages.$inferInsert> = 
       socialLinks: "[]",
       ...overrides,
     })
-    .returning()
-    .get();
+    .returning())[0];
 }
 
-export function seedTheme(overrides: Partial<typeof schema.themes.$inferInsert> = {}) {
-  return db
+export async function seedTheme(overrides: Partial<typeof schema.themes.$inferInsert> = {}) {
+  return (await db
     .insert(schema.themes)
     .values({
       name: "Test Theme",
@@ -88,12 +78,11 @@ export function seedTheme(overrides: Partial<typeof schema.themes.$inferInsert> 
       isPreset: false,
       ...overrides,
     })
-    .returning()
-    .get();
+    .returning())[0];
 }
 
-export function seedLink(overrides: Partial<typeof schema.links.$inferInsert> = {}) {
-  return db
+export async function seedLink(overrides: Partial<typeof schema.links.$inferInsert> = {}) {
+  return (await db
     .insert(schema.links)
     .values({
       pageId: 1,
@@ -104,6 +93,5 @@ export function seedLink(overrides: Partial<typeof schema.links.$inferInsert> = 
       isActive: true,
       ...overrides,
     })
-    .returning()
-    .get();
+    .returning())[0];
 }

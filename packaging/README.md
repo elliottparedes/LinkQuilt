@@ -4,6 +4,12 @@ Canonical sources for LinkBreeze's app-store packaging. The official
 distribution is the Docker image; these directories turn that image into
 one-click catalog listings.
 
+The PostgreSQL release requires a reachable database. Set `DATABASE_URL` in
+the app's install settings and keep its existing data mount. Follow the
+[SQLite upgrade guide](../docs/dokploy.md#upgrade-an-existing-sqlite-installation)
+before replacing a SQLite-backed install. The fork's image is published to
+`ghcr.io/elliottparedes/linkquilt`.
+
 | Directory | Target | Vehicle |
 |---|---|---|
 | `casaos/` | CasaOS / ZimaOS App Store | PR to `IceWhaleTech/CasaOS-AppStore` from the `OmniRise/LinkBreeze-CasaOS-AppStore` fork |

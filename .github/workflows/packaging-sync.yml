@@ -41,6 +41,7 @@ env:
 
 jobs:
   sync:
+    if: github.repository_owner == 'OmniRise' || inputs.dry_run
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -57,8 +58,8 @@ jobs:
         run: |
           set -euo pipefail
           V="${{ steps.ver.outputs.version }}"
-          grep -q "linkbreeze:v${V}" packaging/casaos/Apps/LinkBreeze/docker-compose.yml
-          grep -q "linkbreeze:v${V}" packaging/runtipi/apps/linkbreeze/docker-compose.yml
+          grep -Eq "link(breeze|quilt):v${V}" packaging/casaos/Apps/LinkBreeze/docker-compose.yml
+          grep -Eq "link(breeze|quilt):v${V}" packaging/runtipi/apps/linkbreeze/docker-compose.yml
           grep -q "<Tag>v${V}</Tag>" packaging/unraid/linkbreeze.xml
           echo "All three manifests pin v${V}. OK."
 

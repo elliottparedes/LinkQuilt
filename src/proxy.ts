@@ -11,7 +11,7 @@ import {
   resolveHostRequest,
 } from "@/lib/host-routing";
 import {
-  getDomainBindings,
+  getRequestDomainBindings,
   getDomainPolicy,
   getDomainScopeMap,
   markDomainActive,
@@ -19,10 +19,7 @@ import {
 
 /**
  * The Next.js 16 proxy (formerly "middleware"). Runs on the Node.js runtime,
- * so it can read SQLite directly — domain bindings and policy load in two
- * indexed queries per request (better-sqlite3 is synchronous and µs-fast;
- * no cache layer: invalidation on every page edit for zero measurable gain
- * is a bad trade).
+ * so domain routing can read PostgreSQL through the shared Node pool.
  *
  * Responsibilities, in order:
  *   1. i18n — forward the admin UI locale as a request header.
@@ -77,6 +74,7 @@ const ADMIN_RESERVED = new Set([
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  if (pathname === "/api/health") return NextResponse.next();
 
   // Accidental GET form submits (JS not hydrated / Server Actions blocked)
   // put passwords in the query string. Strip them with a redirect so the
@@ -142,7 +140,7 @@ export async function proxy(request: NextRequest) {
   if (host) {
     const [policy, bindings] = await Promise.all([
       getDomainPolicy(),
-      getDomainBindings(),
+      getRequestDomainBindings(host, pathname),
     ]);
     const scopeByPageId = await getDomainScopeMap(bindings);
 

@@ -59,13 +59,12 @@ const running: AbConfig = {
   winner: null,
 };
 
-function counts(linkId: number) {
-  return db
-    .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)` })
+async function counts(linkId: number) {
+  return (await db
+    .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)`.mapWith(Number) })
     .from(analyticsClicks)
     .where(eq(analyticsClicks.linkId, linkId))
-    .groupBy(analyticsClicks.variant)
-    .all();
+    .groupBy(analyticsClicks.variant));
 }
 
 async function hits(id: number, visitor: string, n: number, extra?: ConstructorParameters<typeof NextRequest>[1]) {
@@ -86,10 +85,10 @@ describe("[integration] recording integrity under repeated hits (#81 E.62)", () 
   it("N hits from one visitor record ONE consistent label; clicksCount tracks rows", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.mocked(isBot).mockReturnValue(false);
-    const link = seedLink({
+    const link = (await seedLink({
       url: "https://example.com/a",
       abConfig: serializeAbConfig(running),
-    });
+    }));
     const expected = assignVariant("e62-visitor", link.id, 50, 50);
     const expectedUrl =
       expected === "B" ? "https://example.com/b" : "https://example.com/a";
@@ -101,14 +100,13 @@ describe("[integration] recording integrity under repeated hits (#81 E.62)", () 
     for (const r of res) expect(r.headers.get("location")).toBe(expectedUrl);
 
     // ...and every recorded row carries that ONE label (no mixing).
-    expect(counts(link.id)).toEqual([{ variant: expected, c: N }]);
+    expect((await counts(link.id))).toEqual([{ variant: expected, c: N }]);
 
     // Transactional denormalization: clicksCount == recorded row count.
-    const row = db
+    const row = (await db
       .select({ clicksCount: links.clicksCount })
       .from(links)
-      .where(eq(links.id, link.id))
-      .get();
+      .where(eq(links.id, link.id)).limit(1))[0];
     expect(row?.clicksCount).toBe(N);
 
     vi.unstubAllEnvs();
@@ -117,10 +115,10 @@ describe("[integration] recording integrity under repeated hits (#81 E.62)", () 
   it("forged variant inputs repeated N times never move the recorded label", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.mocked(isBot).mockReturnValue(false);
-    const link = seedLink({
+    const link = (await seedLink({
       url: "https://example.com/a",
       abConfig: serializeAbConfig(running),
-    });
+    }));
     const expected = assignVariant("e62-forge", link.id, 50, 50);
     const expectedUrl =
       expected === "B" ? "https://example.com/b" : "https://example.com/a";
@@ -141,7 +139,7 @@ describe("[integration] recording integrity under repeated hits (#81 E.62)", () 
       );
     }
     for (const r of res) expect(r.headers.get("location")).toBe(expectedUrl);
-    expect(counts(link.id)).toEqual([{ variant: expected, c: 4 }]);
+    expect((await counts(link.id))).toEqual([{ variant: expected, c: 4 }]);
 
     vi.unstubAllEnvs();
   });

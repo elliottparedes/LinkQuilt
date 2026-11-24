@@ -29,7 +29,6 @@
 #
 # SCALE:
 #   kubectl scale deployment/linkbreeze --replicas=3
-#   (Note: SQLite doesn't support concurrent writes. Scale only if you use a distributed database adapter.)
 #
 ---
 # Namespace (optional — create if needed)
@@ -47,7 +46,6 @@ metadata:
   namespace: linkbreeze
 data:
   PORT: "3000"
-  DATABASE_PATH: "/app/data/linkbreeze.db"
 
 ---
 # Secret for sensitive environment variables
@@ -58,6 +56,7 @@ metadata:
   namespace: linkbreeze
 type: Opaque
 stringData:
+  DATABASE_URL: "postgresql://linkbreeze:password@postgres.example:5432/linkbreeze"
   # Generate with: openssl rand -hex 32
   SECRET_KEY: "changeme-generate-with-openssl-rand-hex-32"
   # Optional: Cloudflare Tunnel token if using tunnel mode
@@ -103,7 +102,7 @@ spec:
     spec:
       containers:
         - name: linkbreeze
-          image: docker.io/omnirise/linkbreeze:latest
+          image: ghcr.io/elliottparedes/linkquilt:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -129,11 +128,11 @@ spec:
                 configMapKeyRef:
                   name: linkbreeze-config
                   key: PORT
-            - name: DATABASE_PATH
+            - name: DATABASE_URL
               valueFrom:
-                configMapKeyRef:
-                  name: linkbreeze-config
-                  key: DATABASE_PATH
+                secretKeyRef:
+                  name: linkbreeze-secret
+                  key: DATABASE_URL
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -208,7 +207,6 @@ spec:
 
 ---
 # Horizontal Pod Autoscaler (optional — scale based on CPU)
-# NOTE: SQLite doesn't support concurrent writes. Only enable if you switch to a distributed database.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

@@ -1,4 +1,4 @@
-// MUST be the first non-vitest import: it swaps @/db to the sql.js
+// MUST be the first non-vitest import: it swaps @/db to the PostgreSQL
 // in-memory engine with all migrations applied. The real better-sqlite3
 // file DB starts EMPTY in CI ("no such table") — same reason the #94
 // search-visibility integration suite uses this harness.
@@ -54,11 +54,10 @@ describe("domains data layer (#85)", () => {
   it("creates a page + bindings, listing normalizes hosts", async () => {
     await cleanup();
 
-    const page = db
+    const page = (await db
       .insert(pages)
       .values({ slug: FIX_SLUG, title: "Domains test page" })
-      .returning()
-      .get();
+      .returning())[0];
     pageId = page.id;
 
     primaryId = await createDomain({

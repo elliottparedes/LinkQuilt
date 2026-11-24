@@ -48,7 +48,7 @@ async function countQueries(fn: () => unknown): Promise<number> {
 }
 
 async function seedRunningTest(overrides: Partial<AbConfig> = {}) {
-  return seedLink({ abConfig: serializeAbConfig({ ...running, ...overrides }) });
+  return (await seedLink({ abConfig: serializeAbConfig({ ...running, ...overrides }) }));
 }
 
 async function clickVariants(linkId: number, a: number, b: number) {
@@ -88,12 +88,11 @@ describe("auto-promotion scanner (#81 E.1)", () => {
 
     // E.50: promotion archives the TEST but never rewrites click history —
     // the permanent labels the CSV export reads stay A:50/B:150 intact.
-    const remaining = db
-      .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)` })
+    const remaining = (await db
+      .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)`.mapWith(Number) })
       .from(analyticsClicks)
       .where(eq(analyticsClicks.linkId, link.id))
-      .groupBy(analyticsClicks.variant)
-      .all();
+      .groupBy(analyticsClicks.variant));
     expect(remaining).toEqual([
       { variant: "A", c: 50 },
       { variant: "B", c: 150 },
@@ -151,7 +150,7 @@ describe("auto-promotion scanner (#81 E.1)", () => {
 
   it("skips plain links without configs", async () => {
     await updateSetting(AB_AUTO_PROMOTE_SETTING, "on");
-    const plain = seedLink(); // no abConfig
+    const plain = (await seedLink()); // no abConfig
     await clickVariants(plain.id, 10, 400);
     expect(await runAbAutoPromoteScan()).toBe(0);
   });
@@ -315,21 +314,19 @@ describe("auto-promotion scanner (#81 E.1)", () => {
     const s0 = await getLinkStats(link.id, "7d");
     expect(s0!.variants).toEqual({ a: 60, b: 140 });
     expect(s0!.totalClicks).toBe(200);
-    const raw0 = db
-      .select({ c: sql<number>`count(*)` })
+    const raw0 = (await db
+      .select({ c: sql<number>`count(*)`.mapWith(Number) })
       .from(analyticsClicks)
-      .where(eq(analyticsClicks.linkId, link.id))
-      .get();
+      .where(eq(analyticsClicks.linkId, link.id)).limit(1))[0];
     expect(raw0?.c).toBe(200);
     expect((await getLink(link.id))?.clicksCount).toBe(200);
 
     // (b) DIVERGE: backdate 30 A rows past the 7d window.
-    const oldA = db
+    const oldA = (await db
       .select({ id: analyticsClicks.id })
       .from(analyticsClicks)
       .where(and(eq(analyticsClicks.linkId, link.id), eq(analyticsClicks.variant, "A")))
-      .limit(30)
-      .all()
+      .limit(30))
       .map((r) => r.id);
     expect(oldA).toHaveLength(30);
     await db
@@ -388,7 +385,7 @@ describe("auto-promotion scanner (#81 E.1)", () => {
         for (const labelA of labels) {
           for (const useWindow of windows) {
             for (const winner of winners) {
-              const row = seedLink({
+              const row = (await seedLink({
                 url: `https://example.com/p${i}`,
                 abConfig: JSON.stringify({
                   v,
@@ -403,7 +400,7 @@ describe("auto-promotion scanner (#81 E.1)", () => {
                     ? { startsAt: "2026-11-01T10:00", endsAt: "2026-11-08T10:00" }
                     : {}),
                 }),
-              });
+              }));
               if (status === "running") expected.push(row.id);
               i++;
             }
@@ -412,14 +409,13 @@ describe("auto-promotion scanner (#81 E.1)", () => {
       }
     }
     // Bare links: no config at all (NULL must never match).
-    const bare = [seedLink({ url: "https://example.com/bare-0" }), seedLink({ url: "https://example.com/bare-1" })];
+    const bare = [(await seedLink({ url: "https://example.com/bare-0" })), (await seedLink({ url: "https://example.com/bare-1" }))];
     expect(i).toBe(96);
 
-    const matched = db
+    const matched = (await db
       .select({ id: links.id })
       .from(links)
-      .where(sql`${links.abConfig} LIKE '%\"status\":\"running\"%'`)
-      .all()
+      .where(sql`${links.abConfig} LIKE '%\"status\":\"running\"%'`))
       .map((r) => r.id);
     expect(matched.sort((a, b) => a - b)).toEqual(expected.sort((a, b) => a - b));
     expect(matched).toHaveLength(32); // 2v x 4labels x 2windows x 2winners
@@ -431,9 +427,9 @@ describe("auto-promotion scanner (#81 E.1)", () => {
     // prefilter fragment, so the scanner FINDS the row — its parse-level
     // re-validation must then reject it (0 promoted, config untouched).
     await updateSetting(AB_AUTO_PROMOTE_SETTING, "on");
-    const link = seedLink({
+    const link = (await seedLink({
       abConfig: JSON.stringify({ ...running, v: 2 }),
-    });
+    }));
     await clickVariants(link.id, 150, 350); // way past every floor
     expect(await runAbAutoPromoteScan()).toBe(0);
     const raw = (await getLink(link.id))?.abConfig ?? null;
@@ -457,22 +453,20 @@ describe("auto-promotion scanner (#81 E.1)", () => {
 
     // Simulate retention: delete 110 rows (whatever retention would have
     // dropped as "old") — leaves 190 < the 200 floor.
-    const ids = db
+    const ids = (await db
       .select({ id: analyticsClicks.id })
       .from(analyticsClicks)
-      .where(eq(analyticsClicks.linkId, link.id))
-      .all()
+      .where(eq(analyticsClicks.linkId, link.id)))
       .slice(0, 110)
       .map((r) => r.id);
     expect(ids).toHaveLength(110);
-    db.delete(analyticsClicks).where(inArray(analyticsClicks.id, ids)).run();
+    (await db.delete(analyticsClicks).where(inArray(analyticsClicks.id, ids)));
 
     // Remaining counts from the actual rows (split depends on which ids went).
-    const rows = db
+    const rows = (await db
       .select({ variant: analyticsClicks.variant })
       .from(analyticsClicks)
-      .where(eq(analyticsClicks.linkId, link.id))
-      .all();
+      .where(eq(analyticsClicks.linkId, link.id)));
     const a = rows.filter((r) => r.variant === "A").length;
     const b = rows.filter((r) => r.variant === "B").length;
     expect(a + b).toBe(190);
@@ -497,7 +491,7 @@ describe("auto-promotion scanner (#81 E.1)", () => {
 
     const N = 8;
     for (let i = 0; i < N; i++) await seedRunningTest();
-    for (let i = 0; i < 45; i++) seedLink({ title: `Plain ${i}` }); // no abConfig -> prefiltered out
+    for (let i = 0; i < 45; i++) (await seedLink({ title: `Plain ${i}` })); // no abConfig -> prefiltered out
 
     const q = await countQueries(() => runAbAutoPromoteScan());
     expect(q).toBe(2 + N); // getSetting + prefilter + N grouped counts; 45 plain rows free
@@ -548,7 +542,7 @@ describe("scanner eligibility truth table (#81 E.86)", () => {
     await updateSetting(AB_AUTO_PROMOTE_SETTING, "on");
     const seeded: Array<{ cell: Cell; id: number; config: string; url: string }> = [];
     for (const [i, cell] of CELLS.entries()) {
-      const link = seedLink({ ...cell.seed, title: `Cell ${i}: ${cell.name}` });
+      const link = (await seedLink({ ...cell.seed, title: `Cell ${i}: ${cell.name}` }));
       for (let k = 0; k < cell.clicks.a; k++) await recordClick(link.id, `e86-${i}-a${k}`, null, "click", "A");
       for (let k = 0; k < cell.clicks.b; k++) await recordClick(link.id, `e86-${i}-b${k}`, null, "click", "B");
       for (let k = 0; k < (cell.clicks.unlabeled ?? 0); k++) await recordClick(link.id, `e86-${i}-u${k}`, null, "click");

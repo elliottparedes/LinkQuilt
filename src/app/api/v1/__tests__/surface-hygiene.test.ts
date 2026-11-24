@@ -100,17 +100,16 @@ async function collect(label: string, res: Response): Promise<void> {
 
 beforeAll(async () => {
   KEY = (await createApiKey()).key;
-  pageId = seedPage({ slug: "hygiene-page", title: "Hygiene Page" }).id;
-  seedLink({ title: "Hygiene link", url: "https://hygiene.example", pageId, orderIndex: 0 });
-  db.insert(schema.profile)
+  pageId = (await seedPage({ slug: "hygiene-page", title: "Hygiene Page" })).id;
+  (await seedLink({ title: "Hygiene link", url: "https://hygiene.example", pageId, orderIndex: 0 }));
+  (await db.insert(schema.profile)
     .values({
       displayName: "Hygiene",
       bio: "Bio",
       badgeText: null,
       avatarUrl: null,
       socialLinks: JSON.stringify([{ platform: "github", url: "https://github.com/h" }]),
-    })
-    .run();
+    }));
 });
 
 describe("surface hygiene (E.17)", () => {
@@ -118,7 +117,7 @@ describe("surface hygiene (E.17)", () => {
     await collect("GET /links", await listLinks(req("/api/v1/links")));
     await collect("GET /links?limit=2", await listLinks(req("/api/v1/links?limit=2&fields=title,url")));
 
-    const seed = db.select().from(schema.links).all()[0];
+    const seed = (await db.select().from(schema.links))[0];
     await collect("GET /links/:id", await getLinkRoute(req(`/api/v1/links/${seed.id}`), {
       params: Promise.resolve({ id: String(seed.id) }),
     }));
@@ -155,7 +154,7 @@ describe("surface hygiene (E.17)", () => {
         req("/api/v1/sections", { method: "POST", body: { pageId, title: "Hygiene section" } }),
       ),
     );
-    const section = db.select().from(schema.linkSections).all()[0];
+    const section = (await db.select().from(schema.linkSections))[0];
     await collect(
       "PUT /sections/reorder",
       await reorderSectionsRoute(

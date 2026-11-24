@@ -1,25 +1,22 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import * as schema from "./schema";
-import * as path from "path";
-import * as fs from "fs";
 
-const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "linkbreeze.db");
-const dbDir = path.dirname(dbPath);
+const runtime = globalThis as typeof globalThis & { linkbreezeDatabasePool?: Pool };
 
-// Ensure the data directory exists
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+export const pool = runtime.linkbreezeDatabasePool ??= new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 5,
+  connectionTimeoutMillis: 2_000,
+  statement_timeout: 5_000,
+  idle_in_transaction_session_timeout: 10_000,
+});
+
+if (!pool.listenerCount("error")) {
+  pool.on("error", (error: NodeJS.ErrnoException) => {
+    console.error("[db] Idle PostgreSQL connection closed", error.code ?? error.name);
+  });
 }
 
-// busy_timeout: wait up to 5s instead of immediately throwing "database is locked"
-// when another connection holds the WAL lock (common during `next build` page
-// data collection with multiple workers, or during migration).
-const sqlite = new Database(dbPath, { timeout: 5000 });
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
-sqlite.pragma("busy_timeout = 5000");
-
-export const db = drizzle(sqlite, { schema });
-export { sqlite };
+export const db = drizzle(pool, { schema });
 export { schema };

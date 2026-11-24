@@ -46,11 +46,11 @@ const validItem = (n: number) => ({
   url: `https://imported${n}.example`,
 });
 
-const linkCount = () => db.select().from(schema.links).all().length;
+const linkCount = async () => (await db.select().from(schema.links)).length;
 
 beforeAll(async () => {
   KEY = (await createApiKey()).key;
-  seedPage({ slug: "import-page", title: "Import Page" });
+  (await seedPage({ slug: "import-page", title: "Import Page" }));
 });
 
 afterEach(() => {
@@ -72,7 +72,7 @@ describe("envelope validation (400s before any work)", () => {
       const parsed = await res.json();
       expect(parsed.error.code).toBe("validation");
     }
-    expect(linkCount()).toBe(0); // nothing was written by rejected envelopes
+    expect((await linkCount())).toBe(0); // nothing was written by rejected envelopes
   });
 
   it("401s without a key and 403s in demo mode", async () => {
@@ -88,7 +88,7 @@ describe("envelope validation (400s before any work)", () => {
 
 describe("batch behavior", () => {
   it("creates every valid item and reports ids in order", async () => {
-    const before = linkCount();
+    const before = (await linkCount());
     const res = await importRoute(
       req({ items: [validItem(10), validItem(11), validItem(12)] }),
     );
@@ -104,8 +104,8 @@ describe("batch behavior", () => {
     const ids = body.results.map((r: { id: number }) => r.id);
     expect(new Set(ids).size).toBe(3);
 
-    expect(linkCount()).toBe(before + 3);
-    const rows = db.select().from(schema.links).all();
+    expect((await linkCount())).toBe(before + 3);
+    const rows = (await db.select().from(schema.links));
     for (const id of ids) {
       expect(rows.find((r) => r.id === id)).toBeTruthy();
     }
@@ -116,7 +116,7 @@ describe("batch behavior", () => {
   });
 
   it("PARTIAL failure: bad entries error individually, the batch completes", async () => {
-    const before = linkCount();
+    const before = (await linkCount());
     const res = await importRoute(
       req({
         items: [
@@ -143,11 +143,11 @@ describe("batch behavior", () => {
       expect(body.results[i].error.code).toBe("validation");
       expect(typeof body.results[i].error.message).toBe("string");
     }
-    expect(linkCount()).toBe(before + 2);
+    expect((await linkCount())).toBe(before + 2);
   });
 
   it("E.107: full-size batch (100 = the cap) with ONE bad entry → 99 created / 1 failed, exact counts", async () => {
-    const before = linkCount();
+    const before = (await linkCount());
     const items = Array.from({ length: 99 }, (_, n) => validItem(300 + n));
     items.splice(57, 0, { title: "Poison", url: "javascript:alert(1)" });
     expect(items).toHaveLength(100); // exactly the request cap
@@ -162,11 +162,11 @@ describe("batch behavior", () => {
     expect(
       body.results.filter((r: { status: string }) => r.status === "created"),
     ).toHaveLength(99);
-    expect(linkCount()).toBe(before + 99);
+    expect((await linkCount())).toBe(before + 99);
   });
 
   it("E.117: same URL twice in ONE batch creates BOTH rows (URL is not unique by design)", async () => {
-    const before = linkCount();
+    const before = (await linkCount());
     const res = await importRoute(req({ items: [validItem(500), validItem(500)] }));
     expect(res.status).toBe(200);
     const body = (await res.json()).data;
@@ -175,7 +175,7 @@ describe("batch behavior", () => {
     expect(body.results).toHaveLength(2);
     const ids = body.results.map((r: { id: number }) => r.id);
     expect(ids[0]).not.toBe(ids[1]); // two distinct rows, plain create — no
-    expect(linkCount()).toBe(before + 2); // conflict check (links.url has no UNIQUE)
+    expect((await linkCount())).toBe(before + 2); // conflict check (links.url has no UNIQUE)
   });
 
   it("strips id-shaped fields from every item (URL owns ids)", async () => {
@@ -190,10 +190,9 @@ describe("batch behavior", () => {
     expect(body.created).toBe(1);
     const id = body.results[0].id;
     expect(id).not.toBe(99999);
-    const row = db
+    const row = (await db
       .select()
-      .from(schema.links)
-      .all()
+      .from(schema.links))
       .find((r) => r.id === id)!;
     expect(row.clicksCount).not.toBe(12345);
   });
@@ -229,16 +228,15 @@ describe("E.13 import edge battery", () => {
     expect(body.results[1].error.details?.[0]?.path).toBe("redirectSlug");
 
     // The winner actually holds the slug.
-    const winner = db
+    const winner = (await db
       .select()
-      .from(schema.links)
-      .all()
+      .from(schema.links))
       .find((r) => r.id === body.results[0].id)!;
     expect(winner.redirectSlug).toBe("batch-edge-slug");
   });
 
   it("iconMode custom is rejected per-item (upload stays UI-only)", async () => {
-    const before = linkCount();
+    const before = (await linkCount());
     const res = await importRoute(
       req({
         items: [
@@ -252,11 +250,11 @@ describe("E.13 import edge battery", () => {
     expect(body.failed).toBe(1);
     expect(body.results[0].error.code).toBe("validation");
     expect(body.results[0].error.message.length).toBeGreaterThan(0);
-    expect(linkCount()).toBe(before); // rejected before any insert
+    expect((await linkCount())).toBe(before); // rejected before any insert
   });
 
   it("accepts exactly 100 items (the cap)", async () => {
-    const before = linkCount();
+    const before = (await linkCount());
     const items = Array.from({ length: 100 }, (_, i) => validItem(1000 + i));
     const res = await importRoute(req({ items }));
     expect(res.status).toBe(200);
@@ -264,11 +262,11 @@ describe("E.13 import edge battery", () => {
     expect(body.created).toBe(100);
     expect(body.failed).toBe(0);
     expect(body.results).toHaveLength(100);
-    expect(linkCount()).toBe(before + 100);
+    expect((await linkCount())).toBe(before + 100);
   });
 
   it("deeply nested junk: unknown keys stripped, wrong-typed title and array entries error", async () => {
-    const before = linkCount();
+    const before = (await linkCount());
     const res = await importRoute(
       req({
         items: [
@@ -287,21 +285,20 @@ describe("E.13 import edge battery", () => {
     expect(body.created).toBe(1);
     expect(body.failed).toBe(2);
 
-    const winner = db
+    const winner = (await db
       .select()
-      .from(schema.links)
-      .all()
+      .from(schema.links))
       .find((r) => r.id === body.results[0].id)!;
     expect(winner.title).toBe("Nested junk");
     expect("junk" in winner).toBe(false); // zod stripped it at the boundary
     expect(body.results[1].error.code).toBe("validation");
     expect(body.results[2].error.message).toContain("JSON object");
-    expect(linkCount()).toBe(before + 1);
+    expect((await linkCount())).toBe(before + 1);
   });
 
   it("E.132: from a LINK-LESS instance the envelope and counts are identical (absolute, not delta)", async () => {
     await db.delete(schema.links); // absolute zero baseline
-    expect(linkCount()).toBe(0);
+    expect((await linkCount())).toBe(0);
 
     const first = await importRoute(
       req({ items: [validItem(700), validItem(701), { title: "", url: "javascript:void(0)" }] }),
@@ -313,7 +310,7 @@ describe("E.13 import edge battery", () => {
     expect(body.results).toHaveLength(3);
     expect(body.results[0].status).toBe("created");
     expect(body.results[2].error.code).toBe("validation");
-    expect(linkCount()).toBe(2); // absolute count from zero
+    expect((await linkCount())).toBe(2); // absolute count from zero
 
     // The exact cap still computes from zero: 100 more → 102 total.
     const full = await importRoute(
@@ -323,6 +320,6 @@ describe("E.13 import edge battery", () => {
     const fullBody = (await full.json()).data;
     expect(fullBody.created).toBe(100);
     expect(fullBody.failed).toBe(0);
-    expect(linkCount()).toBe(102);
+    expect((await linkCount())).toBe(102);
   });
 });

@@ -1,18 +1,4 @@
-/**
- * /api/v1 live-ish probe (#4, BURN-BACKLOG-4 3.2) — REAL better-sqlite3 DB
- * (throwaway file, migrated via drizzle), REAL modules, REAL crypto: creates
- * an API key through the same module the admin action uses, then invokes the
- * actual route handlers with real NextRequest objects and asserts the
- * envelope shapes end to end.
- *
- * Usage:
- *   DATABASE_PATH=/tmp/lb-api-probe/probe.db \
- *   UPLOAD_DIR=/tmp/lb-api-probe/uploads \
- *   npx tsx scripts/api-v1-probe.ts
- *
- * Refuses to run without an explicit DATABASE_PATH (never touch the dev DB).
- */
-import * as fs from "node:fs";
+/** API contract probe. Run with TEST_DATABASE_URL pointing to a disposable linkbreeze_probe_* database. */
 import * as path from "node:path";
 import Module from "node:module";
 import { NextRequest } from "next/server";
@@ -37,28 +23,22 @@ async function main() {
     return originalResolve(request, ...rest);
   };
 
-  const dbPath = process.env.DATABASE_PATH;
-  if (!dbPath) {
-    console.error("DATABASE_PATH is required (use a throwaway file).");
-    process.exit(2);
+  const testUrl = process.env.TEST_DATABASE_URL;
+  if (!testUrl || !new URL(testUrl).pathname.startsWith("/linkbreeze_probe_")) {
+    throw new Error("TEST_DATABASE_URL must point to a disposable linkbreeze_probe_* database.");
   }
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  fs.mkdirSync(process.env.UPLOAD_DIR || path.join(path.dirname(dbPath), "uploads"), {
-    recursive: true,
-  });
-  // Stale WAL siblings over a fresh file make drizzle's boot migrate die with
-  // SQLITE_IOERR_SHORT_READ (skill gotcha) — start clean every run.
-  for (const sibling of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
-    fs.rmSync(sibling, { force: true });
+  process.env.DATABASE_URL = testUrl;
+  const { pool } = await import("../src/db");
+  const { migratePostgres, initializePostgres } = await import("../src/db/bootstrap.mjs");
+  const client = await pool.connect();
+  try {
+    await migratePostgres(client);
+    await initializePostgres(client, false);
+  } finally {
+    client.release();
   }
-
-  // Imports that touch @/db MUST come after the env is in place.
-  const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");
-  const { db } = await import("../src/db");
   const { createApiKey } = await import("../src/server/api-keys");
   const { getAllLinks } = await import("../src/server/queries");
-
-  migrate(db, { migrationsFolder: path.join(process.cwd(), "src", "db", "migrations") });
 
   const linksRoute = await import("../src/app/api/v1/links/route");
   const linkIdRoute = await import("../src/app/api/v1/links/[id]/route");

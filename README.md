@@ -57,9 +57,9 @@ By default, the multi-user application can provision a page for each new account
 
 ### Run your own instance
 
-LinkQuilt can also be deployed as a Dockerized Next.js application. The repository includes a Dockerfile, a general Compose file, and a Dokploy-specific Compose file.
+Build a standalone Docker image with the included Dockerfile and supply `DATABASE_URL`, or run `docker compose up -d --build` with a URL-safe `LINKBREEZE_POSTGRES_PASSWORD` to get the app and a private PostgreSQL instance. Mount `/app/data` persistently.
 
-For Dokploy, use **[the deployment guide](docs/dokploy.md)** and **[docker-compose.dokploy.yml](docker-compose.dokploy.yml)**.
+Use the [Dokploy deployment and SQLite upgrade guide](docs/dokploy.md) to deploy from the Dockerfile or migrate an existing installation.
 
 For local development:
 
@@ -68,13 +68,13 @@ git clone https://github.com/elliottparedes/LinkQuilt.git
 cd LinkQuilt
 npm ci
 cp .env.example .env
-npm run db:migrate
+# Set DATABASE_URL in .env to your PostgreSQL database.
 npm run dev
 ~~~
 
 Open **http://localhost:3000**. On an uninitialized database, the app redirects to its first-run setup.
 
-**Requirements:** Node.js 22 or newer. For production deployments, configure a persistent data directory/volume and the correct public **BASE_URL**. Follow the deployment guide for environment and HTTPS setup.
+**Requirements:** Node.js 22.16 or newer and PostgreSQL. For production, use a persistent data volume and set the public `BASE_URL`.
 
 > **Note:** Some configuration variables, container service names, database file paths, and other internal identifiers retain the original LinkBreeze naming for compatibility. Do not rename them without checking migration and deployment impact.
 
@@ -84,7 +84,7 @@ Open **http://localhost:3000**. On an uninitialized database, the app redirects 
 |---|---|
 | Web application | Next.js 16 App Router, React 19, TypeScript |
 | UI | Tailwind CSS, Base UI, drag-and-drop components |
-| Persistence | SQLite, Drizzle ORM, better-sqlite3 |
+| Persistence | PostgreSQL, Drizzle ORM, local uploads |
 | Authentication | Signed sessions, Argon2id password hashing, optional OIDC and TOTP |
 | Analytics | Server-side page views and link interactions |
 | Containerization | Docker, Docker Compose |
@@ -99,11 +99,11 @@ The public page routes and dashboard use page-aware data access, while account-m
 
 ### Production storage
 
-The Dokploy Compose configuration builds the application from this repository and mounts a persistent volume at **/app/data**. This holds application state such as the SQLite database and uploaded files. The application runs database migrations as part of its container startup process.
+Dokploy builds one app container from the Dockerfile and mounts a persistent volume at `/app/data` for uploads, local configuration exports, and the persisted signing key. PostgreSQL stores accounts, pages, configuration, and analytics. The container applies pending schema migrations on startup.
 
 See [Dokploy deployment and backup guidance](docs/dokploy.md) before managing or replacing production volumes.
 
-## 🔌 API
+## 🔌 REST API
 
 LinkQuilt includes a REST API for links, sections, profiles, and analytics. API access uses keys generated within the application's security settings.
 
@@ -113,7 +113,25 @@ On a running instance:
 - **/api/v1/openapi.json** — OpenAPI specification
 - **/api/health** — health endpoint
 
-Do not share API keys publicly or commit them to the repository.
+Send the key with the `Authorization: Bearer` header. The API allows 120 requests per minute per key and reports usage through `X-RateLimit` headers. Reads that return ETags support `If-None-Match`. Mutations are disabled in demo mode and responses use `no-store`. Paginate the links collection with `?cursor`.
+
+| Method | Path | Use |
+|---|---|---|
+| GET | `/api/v1/links` | List links |
+| POST | `/api/v1/links` | Create a link |
+| GET | `/api/v1/links/:id` | Read a link |
+| PUT | `/api/v1/links/:id` | Edit a link |
+| DELETE | `/api/v1/links/:id` | Delete a link |
+| PUT | `/api/v1/links/reorder` | Reorder links |
+| POST | `/api/v1/links/import` | Import links |
+| GET | `/api/v1/sections` | List sections |
+| POST | `/api/v1/sections` | Create a section |
+| PUT | `/api/v1/sections/reorder` | Reorder sections |
+| PUT | `/api/v1/sections/:id` | Edit a section |
+| DELETE | `/api/v1/sections/:id` | Delete a section |
+| GET | `/api/v1/profile` | Read the profile |
+| PUT | `/api/v1/profile` | Edit the profile |
+| GET | `/api/v1/analytics` | Read analytics |
 
 ## 🧪 Development
 
@@ -125,6 +143,8 @@ npm run build
 ~~~
 
 The project includes unit, API-contract, and end-to-end test coverage. These commands are provided for contributors; their presence does not assert that a particular CI run or production release has passed.
+
+Set `TEST_DATABASE_URL` to a disposable PostgreSQL server with a `CREATEDB` role before running Vitest. Each database-backed suite creates and removes its own temporary database.
 
 ## 📖 More documentation
 

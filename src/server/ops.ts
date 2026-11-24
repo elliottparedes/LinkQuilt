@@ -1,7 +1,5 @@
-import fs from "fs";
 import os from "os";
-import path from "path";
-import { sqlite } from "@/db";
+import { pool } from "@/db";
 import { version } from "@/lib/version";
 
 export interface OpsAccount {
@@ -22,63 +20,35 @@ export interface OpsSnapshot {
   recentSignups: OpsAccount[];
 }
 
-function count(query: string): number {
-  const row = sqlite.prepare(query).get() as { c: number } | undefined;
-  return row?.c ?? 0;
-}
-
-/**
- * One-shot operator snapshot. Each section is independent so a new number
- * is another field here, not a new page. Never includes password hashes.
- */
-export function getOpsSnapshot(): OpsSnapshot {
+/** Collect instance totals without exposing account credentials. */
+export async function getOpsSnapshot(): Promise<OpsSnapshot> {
   const mem = process.memoryUsage();
-  const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "linkbreeze.db");
-  let databaseBytes = 0;
-  try {
-    databaseBytes = fs.statSync(dbPath).size;
-    for (const suffix of ["-wal", "-shm"]) {
-      try {
-        databaseBytes += fs.statSync(dbPath + suffix).size;
-      } catch {
-        // companion files are optional
-      }
-    }
-  } catch {
-    databaseBytes = 0;
-  }
-
-  const recent = sqlite
-    .prepare("SELECT username, status, created_at FROM users ORDER BY id DESC LIMIT 8")
-    .all() as { username: string; status: string; created_at: string }[];
-
+  const [{ rows: [totals] }, { rows: recentSignups }] = await Promise.all([
+    pool.query(`
+      SELECT
+        pg_database_size(current_database()) AS database_bytes,
+        (SELECT count(*) FROM pages) AS pages,
+        (SELECT count(*) FROM links) AS links,
+        count(*) AS accounts,
+        count(*) FILTER (WHERE status = 'active') AS active,
+        count(*) FILTER (WHERE status = 'disabled') AS disabled,
+        count(*) FILTER (WHERE created_at >= to_char(statement_timestamp() AT TIME ZONE 'UTC' - interval '1 day', 'YYYY-MM-DD HH24:MI:SS')) AS day,
+        count(*) FILTER (WHERE created_at >= to_char(statement_timestamp() AT TIME ZONE 'UTC' - interval '7 days', 'YYYY-MM-DD HH24:MI:SS')) AS week,
+        count(*) FILTER (WHERE created_at >= to_char(statement_timestamp() AT TIME ZONE 'UTC' - interval '30 days', 'YYYY-MM-DD HH24:MI:SS')) AS month
+      FROM users
+    `),
+    pool.query<OpsAccount>('SELECT username, status, created_at AS "createdAt" FROM users ORDER BY id DESC LIMIT 8'),
+  ]);
   return {
     version,
     uptimeSeconds: Math.floor(process.uptime()),
-    memory: {
-      rss: mem.rss,
-      heapUsed: mem.heapUsed,
-      free: os.freemem(),
-      total: os.totalmem(),
-    },
-    databaseBytes,
-    accounts: {
-      total: count("SELECT count(*) AS c FROM users"),
-      active: count("SELECT count(*) AS c FROM users WHERE status = 'active'"),
-      disabled: count("SELECT count(*) AS c FROM users WHERE status = 'disabled'"),
-    },
-    signups: {
-      day: count("SELECT count(*) AS c FROM users WHERE created_at >= datetime('now', '-1 day')"),
-      week: count("SELECT count(*) AS c FROM users WHERE created_at >= datetime('now', '-7 day')"),
-      month: count("SELECT count(*) AS c FROM users WHERE created_at >= datetime('now', '-30 day')"),
-    },
-    pages: count("SELECT count(*) AS c FROM pages"),
-    links: count("SELECT count(*) AS c FROM links"),
-    recentSignups: recent.map((row) => ({
-      username: row.username,
-      status: row.status,
-      createdAt: row.created_at,
-    })),
+    memory: { rss: mem.rss, heapUsed: mem.heapUsed, free: os.freemem(), total: os.totalmem() },
+    databaseBytes: Number(totals.database_bytes),
+    accounts: { total: Number(totals.accounts), active: Number(totals.active), disabled: Number(totals.disabled) },
+    signups: { day: Number(totals.day), week: Number(totals.week), month: Number(totals.month) },
+    pages: Number(totals.pages),
+    links: Number(totals.links),
+    recentSignups,
   };
 }
 

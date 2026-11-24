@@ -58,7 +58,7 @@ const idParams = (id: string) => ({ params: Promise.resolve({ id }) });
 
 beforeAll(async () => {
   KEY = (await createApiKey()).key;
-  pageId = seedPage().id;
+  pageId = (await seedPage()).id;
 });
 
 afterEach(() => {

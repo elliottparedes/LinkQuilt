@@ -1,4 +1,5 @@
 import "server-only";
+import { utcNow, utcDaysAgo } from "@/db/sql";
 import { db } from "@/db";
 import {
   users,
@@ -154,7 +155,7 @@ export async function getPageById(id: number): Promise<PageRow | null> {
 }
 
 export async function getPageBySlug(slug: string): Promise<PageRow | null> {
-  const rows = await db.select().from(pages).where(eq(pages.slug, slug)).limit(1);
+  const rows = await db.select().from(pages).where(pageSlugMatches(slug)).limit(1);
   return rows[0] ?? null;
 }
 
@@ -166,10 +167,10 @@ export interface CreatePageInput {
   userId?: number | null;
 }
 
-function insertPage(store: Pick<typeof db, "select" | "insert">, data: CreatePageInput): PageRow {
-  const maxOrder = store.select({ m: sql<number>`max(${pages.orderIndex})` }).from(pages).get();
+async function insertPage(store: Pick<typeof db, "select" | "insert">, data: CreatePageInput): Promise<PageRow> {
+  const maxOrder = (await store.select({ m: sql<number>`max(${pages.orderIndex})` }).from(pages).limit(1))[0];
 
-  return store
+  return (await store
     .insert(pages)
     .values({
       slug: data.slug,
@@ -180,36 +181,46 @@ function insertPage(store: Pick<typeof db, "select" | "insert">, data: CreatePag
       isPublished: true,
       userId: data.userId ?? null,
     })
-    .returning().get();
+    .returning())[0];
 }
 
 export async function createPage(data: CreatePageInput): Promise<PageRow> {
   await ensureDefaultPage();
-  return insertPage(db, data);
+  return db.transaction(async (tx) => {
+    await lockPagePaths(tx);
+    return insertPage(tx, data);
+  });
 }
 
 type PagePathReader = Pick<typeof db, "select">;
 
+const foldedPageSlug = sql`lower(${pages.slug} COLLATE "C")`;
+
 function pageSlugMatches(slug: string) {
-  return sql`${pages.slug} = ${slug} COLLATE NOCASE`;
+  return sql`${foldedPageSlug} = lower(${slug}::text COLLATE "C")`;
 }
 
-function accountPageNamespace(store: PagePathReader, userId: number): string | null {
-  const user = store
+// Namespace claims, page paths and default-page changes span multiple rows.
+async function lockPagePaths(tx: Pick<typeof db, "execute">) {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(167284233, 2)`);
+}
+
+async function accountPageNamespace(store: PagePathReader, userId: number): Promise<string | null> {
+  const user = (await store
     .select({ username: users.username, role: users.role, namespace: users.pageNamespace })
-    .from(users).where(eq(users.id, userId)).get();
+    .from(users).where(eq(users.id, userId)).limit(1))[0];
   if (!user || user.namespace) return user?.namespace ?? null;
 
   const normalized = normalizeSlug(user.username);
   const base = normalized && !isReservedPageNamespace(normalized) ? normalized : "user";
   for (let ordinal = 1; ; ordinal++) {
     const candidate = ordinal === 1 ? base : `${base}-${ordinal}`;
-    const reserved = store.select({ id: users.id }).from(users)
-      .where(eq(users.pageNamespace, candidate)).get();
+    const reserved = (await store.select({ id: users.id }).from(users)
+      .where(eq(users.pageNamespace, candidate)).limit(1))[0];
     if (reserved) continue;
 
-    const home = store.select({ userId: pages.userId, isDefault: pages.isDefault }).from(pages)
-      .where(pageSlugMatches(candidate)).get();
+    const home = (await store.select({ userId: pages.userId, isDefault: pages.isDefault }).from(pages)
+      .where(pageSlugMatches(candidate)).limit(1))[0];
     // Older instances left their bootstrap administrator's home unowned.
     const legacyHome = home?.userId === null && home.isDefault &&
       user.role === "admin" && candidate === normalized;
@@ -217,13 +228,13 @@ function accountPageNamespace(store: PagePathReader, userId: number): string | n
 
     // An account may have been deleted while its public pages were retained.
     // Leave those pages in their original namespace. '/' sorts before '0'.
-    const child = store.select({ id: pages.id }).from(pages)
-      .where(sql`${pages.slug} COLLATE NOCASE >= ${candidate + "/"} AND ${pages.slug} COLLATE NOCASE < ${candidate + "0"}`).get();
+    const child = (await store.select({ id: pages.id }).from(pages)
+      .where(sql`${foldedPageSlug} >= ${candidate + "/"} AND ${foldedPageSlug} < ${candidate + "0"}`).limit(1))[0];
     if (!child) return candidate;
   }
 }
 
-export function getAccountPageNamespace(userId: number): string | null {
+export function getAccountPageNamespace(userId: number): Promise<string | null> {
   return accountPageNamespace(db, userId);
 }
 
@@ -234,24 +245,25 @@ export async function createAccountPage(
   pagesLimit: number | null = null,
 ): Promise<{ page: PageRow } | { error: "account" | "limit" | "conflict" }> {
   await ensureDefaultPage();
-  return db.transaction((tx) => {
-    const namespace = accountPageNamespace(tx, userId);
+  return db.transaction(async (tx) => {
+    await lockPagePaths(tx);
+    const namespace = await accountPageNamespace(tx, userId);
     if (!namespace) return { error: "account" };
     if (pagesLimit != null) {
-      const count = tx.select({ value: sql<number>`count(*)` }).from(pages)
-        .where(eq(pages.userId, userId)).get();
+      const count = (await tx.select({ value: sql<number>`count(*)`.mapWith(Number) }).from(pages)
+        .where(eq(pages.userId, userId)).limit(1))[0];
       if ((count?.value ?? 0) >= pagesLimit) return { error: "limit" };
     }
 
     const slug = data.slug ? `${namespace}/${data.slug.toLowerCase()}` : namespace;
-    if (tx.select({ id: pages.id }).from(pages).where(pageSlugMatches(slug)).get()) {
+    if ((await tx.select({ id: pages.id }).from(pages).where(pageSlugMatches(slug)).limit(1))[0]) {
       return { error: "conflict" };
     }
-    const page = insertPage(tx, { ...data, userId, slug });
-    tx.update(users).set({ pageNamespace: namespace })
-      .where(and(eq(users.id, userId), isNull(users.pageNamespace))).run();
+    const page = await insertPage(tx, { ...data, userId, slug });
+    await tx.update(users).set({ pageNamespace: namespace })
+      .where(and(eq(users.id, userId), isNull(users.pageNamespace)));
     return { page };
-  }, { behavior: "immediate" });
+  });
 }
 
 export async function provisionAccountPage(userId: number, username: string): Promise<void> {
@@ -303,20 +315,21 @@ export interface UpdatePageInput {
 export async function updatePage(id: number, data: UpdatePageInput): Promise<void> {
   // Keep rename checks and the write atomic. Non-slug edits still take a single query.
   if (data.slug !== undefined || data.isDefault) {
-    db.transaction((tx) => {
+    await db.transaction(async (tx) => {
+      await lockPagePaths(tx);
       const changes = { ...data };
       if (data.slug !== undefined) {
-        const page = tx.select({ slug: pages.slug, userId: pages.userId, isDefault: pages.isDefault })
-          .from(pages).where(eq(pages.id, id)).get();
+        const page = (await tx.select({ slug: pages.slug, userId: pages.userId, isDefault: pages.isDefault })
+          .from(pages).where(eq(pages.id, id)).limit(1))[0];
         if (!page) return;
         const slug = replacePageSlug(page.slug, data.slug.toLowerCase());
         if (slug.toLowerCase() !== page.slug.toLowerCase()) {
-          const collision = tx.select({ id: pages.id }).from(pages)
-            .where(and(pageSlugMatches(slug), ne(pages.id, id))).get();
+          const collision = (await tx.select({ id: pages.id }).from(pages)
+            .where(and(pageSlugMatches(slug), ne(pages.id, id))).limit(1))[0];
           if (collision) throw new PageSlugConflict();
           if (!slug.includes("/")) {
-            const owner = tx.select({ id: users.id, username: users.username, role: users.role })
-              .from(users).where(eq(users.pageNamespace, slug)).get();
+            const owner = (await tx.select({ id: users.id, username: users.username, role: users.role })
+              .from(users).where(eq(users.pageNamespace, slug)).limit(1))[0];
             const legacyHome = page.userId === null && page.isDefault &&
               owner?.role === "admin" && normalizeSlug(owner.username) === slug;
             if (owner && owner.id !== page.userId && !legacyHome) throw new PageSlugConflict();
@@ -326,50 +339,50 @@ export async function updatePage(id: number, data: UpdatePageInput): Promise<voi
           delete changes.slug;
         }
       }
-      if (changes.isDefault) tx.update(pages).set({ isDefault: false }).run();
-      if (Object.keys(changes).length) tx.update(pages).set(changes).where(eq(pages.id, id)).run();
-    }, { behavior: "immediate" });
+      if (changes.isDefault) (await tx.update(pages).set({ isDefault: false }));
+      if (Object.keys(changes).length) (await tx.update(pages).set(changes).where(eq(pages.id, id)));
+    });
   } else {
     await db.update(pages).set(data).where(eq(pages.id, id));
   }
 }
 
 export async function deletePage(id: number, wipe = false): Promise<void> {
-  const target = await getPageById(id);
-  if (!target) return;
-  if (target.isDefault) throw new Error("Cannot delete the default page");
-
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
+    await lockPagePaths(tx);
+    const [target] = await tx.select({ isDefault: pages.isDefault }).from(pages).where(eq(pages.id, id));
+    if (!target) return;
+    if (target.isDefault) throw new Error("Cannot delete the default page");
     if (wipe) {
       // Hard delete: links (their click analytics cascade), sections, then the page.
-      tx.delete(links).where(eq(links.pageId, id)).run();
+      (await tx.delete(links).where(eq(links.pageId, id)));
     } else {
       // Keep mode: move links to the default page (sections don't transfer).
       // The default page always exists (schema invariant), so assert it.
-      const def = tx.select({ id: pages.id }).from(pages).where(eq(pages.isDefault, true)).limit(1).get();
+      const def = (await tx.select({ id: pages.id }).from(pages).where(eq(pages.isDefault, true)).limit(1))[0];
       if (!def) throw new Error("No default page found to move links to");
-      tx.update(links).set({ pageId: def.id, sectionId: null }).where(eq(links.pageId, id)).run();
+      (await tx.update(links).set({ pageId: def.id, sectionId: null }).where(eq(links.pageId, id)));
     }
     // Clear pageId on analytics rows (keep historical data, disassociate page).
-    tx.update(analyticsPageviews).set({ pageId: null }).where(eq(analyticsPageviews.pageId, id)).run();
-    tx.update(analyticsSocialClicks).set({ pageId: null }).where(eq(analyticsSocialClicks.pageId, id)).run();
-    tx.delete(linkSections).where(eq(linkSections.pageId, id)).run();
-    tx.delete(pages).where(eq(pages.id, id)).run();
+    (await tx.update(analyticsPageviews).set({ pageId: null }).where(eq(analyticsPageviews.pageId, id)));
+    (await tx.update(analyticsSocialClicks).set({ pageId: null }).where(eq(analyticsSocialClicks.pageId, id)));
+    (await tx.delete(linkSections).where(eq(linkSections.pageId, id)));
+    (await tx.delete(pages).where(eq(pages.id, id)));
   });
 }
 
 export async function reorderPages(orderedIds: number[]): Promise<void> {
   if (orderedIds.length === 0) return;
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     for (let i = 0; i < orderedIds.length; i++) {
-      tx.update(pages).set({ orderIndex: i }).where(eq(pages.id, orderedIds[i])).run();
+      (await tx.update(pages).set({ orderIndex: i }).where(eq(pages.id, orderedIds[i])));
     }
   });
 }
 
 // ─── Links ────────────────────────────────────────────────────────────────────
 
-const nowExpr = sql`datetime('now')`;
+const nowExpr = utcNow;
 
 export async function getActiveLinks(pageId?: number): Promise<LinkRow[]> {
   const conditions = [
@@ -539,9 +552,9 @@ export async function deleteLink(id: number): Promise<void> {
 export async function reorderLinks(orderedIds: number[]): Promise<void> {
   if (orderedIds.length === 0) return;
   // Batch all updates in a single transaction so reorder is atomic and fast.
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     for (let i = 0; i < orderedIds.length; i++) {
-      tx.update(links).set({ orderIndex: i }).where(eq(links.id, orderedIds[i])).run();
+      (await tx.update(links).set({ orderIndex: i }).where(eq(links.id, orderedIds[i])));
     }
   });
 }
@@ -628,20 +641,19 @@ export async function updateSection(
  * enforce foreign keys unless PRAGMA foreign_keys=ON.
  */
 export async function deleteSection(id: number): Promise<void> {
-  db.transaction((tx) => {
-    tx.update(links).set({ sectionId: null }).where(eq(links.sectionId, id)).run();
-    tx.delete(linkSections).where(eq(linkSections.id, id)).run();
+  await db.transaction(async (tx) => {
+    (await tx.update(links).set({ sectionId: null }).where(eq(links.sectionId, id)));
+    (await tx.delete(linkSections).where(eq(linkSections.id, id)));
   });
 }
 
 export async function reorderSections(orderedIds: number[]): Promise<void> {
   if (orderedIds.length === 0) return;
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     for (let i = 0; i < orderedIds.length; i++) {
-      tx.update(linkSections)
+      (await tx.update(linkSections)
         .set({ orderIndex: i })
-        .where(eq(linkSections.id, orderedIds[i]))
-        .run();
+        .where(eq(linkSections.id, orderedIds[i])));
     }
   });
 }
@@ -660,18 +672,16 @@ export async function reorderPageContent(
   sectionOrder: number[],
 ): Promise<void> {
   if (linkOrder.length === 0 && sectionOrder.length === 0) return;
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     for (let i = 0; i < sectionOrder.length; i++) {
-      tx.update(linkSections)
+      (await tx.update(linkSections)
         .set({ orderIndex: i })
-        .where(eq(linkSections.id, sectionOrder[i]))
-        .run();
+        .where(eq(linkSections.id, sectionOrder[i])));
     }
     for (let i = 0; i < linkOrder.length; i++) {
-      tx.update(links)
+      (await tx.update(links)
         .set({ orderIndex: i, sectionId: linkOrder[i].sectionId })
-        .where(eq(links.id, linkOrder[i].id))
-        .run();
+        .where(eq(links.id, linkOrder[i].id)));
     }
   });
 }
@@ -740,13 +750,20 @@ export async function getPagesUsingTheme(themeId: number): Promise<{ id: number;
 export async function setActiveTheme(id: number): Promise<void> {
   // Single transaction: deactivate all, then activate the target. If the
   // process crashes between them, the whole operation rolls back.
-  db.transaction((tx) => markActiveTheme(tx, id));
+  await db.transaction(async (tx) => {
+    await lockThemeMutations(tx);
+    await markActiveTheme(tx, id);
+  });
 }
 
-export function markActiveTheme(tx: Pick<typeof db, "update">, id: number): void {
-  tx.update(themes).set({ isActive: false })
-    .where(and(eq(themes.isActive, true), ne(themes.id, id))).run();
-  tx.update(themes).set({ isActive: true }).where(eq(themes.id, id)).run();
+export async function lockThemeMutations(tx: Pick<typeof db, "execute">): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(167284233, 4)`);
+}
+
+export async function markActiveTheme(tx: Pick<typeof db, "update">, id: number): Promise<void> {
+  (await tx.update(themes).set({ isActive: false })
+    .where(and(eq(themes.isActive, true), ne(themes.id, id))));
+  (await tx.update(themes).set({ isActive: true }).where(eq(themes.id, id)));
 }
 
 export async function updateTheme(
@@ -769,15 +786,15 @@ export async function duplicateTheme(id: number, newName: string): Promise<Theme
   return insertThemeCopy(db, source, newName, null);
 }
 
-export function insertThemeCopy(
+export async function insertThemeCopy(
   tx: Pick<typeof db, "insert">,
   source: ThemeRow,
   name: string,
   ownerId: number | null,
-): ThemeRow {
+): Promise<ThemeRow> {
   const { id: _id, ...design } = source;
   void _id;
-  return tx
+  return (await tx
     .insert(themes)
     .values({
       ...design,
@@ -786,38 +803,42 @@ export function insertThemeCopy(
       isActive: false,
       isPreset: false,
     })
-    .returning()
-    .get();
+    .returning())[0];
 }
 
 /** Saved theme names are unique within an account. */
-export function themeNameExists(name: string, ownerId: number, tx: Pick<typeof db, "select"> = db): boolean {
-  return Boolean(tx
+export async function themeNameExists(name: string, ownerId: number, tx: Pick<typeof db, "select"> = db): Promise<boolean> {
+  return Boolean((await tx
     .select({ id: themes.id })
     .from(themes)
-    .where(and(eq(themes.ownerId, ownerId), eq(themes.name, name.trim())))
-    .get());
+    .where(and(eq(themes.ownerId, ownerId), eq(themes.name, name.trim()))).limit(1))[0]);
 }
 
 /** Delete a theme by id. Presets cannot be deleted. */
 export async function deleteTheme(id: number): Promise<void> {
   const row = await getThemeById(id);
   if (row?.isPreset) throw new Error("Built-in preset themes cannot be deleted");
-  db.transaction((tx) => removeTheme(tx, id));
+  await db.transaction(async (tx) => {
+    await lockThemeMutations(tx);
+    await removeTheme(tx, id);
+  });
 }
 
-export function removeTheme(tx: Pick<typeof db, "update" | "delete">, id: number): void {
+export async function removeTheme(tx: Pick<typeof db, "update" | "delete">, id: number): Promise<void> {
   // Pages pinned to this theme fall back to the instance default.
-  tx.update(pages).set({ themeId: null }).where(eq(pages.themeId, id)).run();
-  tx.delete(themes).where(eq(themes.id, id)).run();
+  (await tx.update(pages).set({ themeId: null }).where(eq(pages.themeId, id)));
+  (await tx.delete(themes).where(eq(themes.id, id)));
 }
 
 /** Seed a set of attractive preset themes if the table is empty. */
 export async function seedThemesIfEmpty(): Promise<void> {
-  const count = await db.select({ c: sql<number>`count(*)` }).from(themes);
-  if ((count[0]?.c ?? 0) > 0) return;
-
-  await db.insert(themes).values(PRESETS);
+  if ((await db.select({ id: themes.id }).from(themes).limit(1)).length) return;
+  await db.transaction(async (tx) => {
+    await lockThemeMutations(tx);
+    if (!(await tx.select({ id: themes.id }).from(themes).limit(1)).length) {
+      await tx.insert(themes).values(PRESETS);
+    }
+  });
 }
 
 /**
@@ -835,7 +856,13 @@ export async function backfillPresets(): Promise<void> {
   const missing = PRESETS.filter((p) => !existing.has(p.name));
   if (missing.length === 0) return;
 
-  await db.insert(themes).values(missing);
+  await db.transaction(async (tx) => {
+    await lockThemeMutations(tx);
+    const current = await tx.select({ name: themes.name }).from(themes).where(eq(themes.isPreset, true));
+    const names = new Set(current.map(({ name }) => name));
+    const stillMissing = missing.filter(({ name }) => !names.has(name));
+    if (stillMissing.length) await tx.insert(themes).values(stillMissing);
+  });
 }
 
 // ─── Custom fonts (#82) ───────────────────────────────────────────────────────
@@ -895,19 +922,17 @@ export async function deleteCustomFont(
 ): Promise<{ affectedThemes: string[] }> {
   const affected = await getThemesUsingCustomFont(fontId);
   const ref = `custom:${fontId}`;
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     // Site font refs reset to Inter (the default); card font refs reset
     // to "" (cards inherit the site font again). A theme with the deleted
     // font in both columns gets each reset independently.
-    tx.update(themes)
+    (await tx.update(themes)
       .set({ fontFamily: "inter" })
-      .where(eq(themes.fontFamily, ref))
-      .run();
-    tx.update(themes)
+      .where(eq(themes.fontFamily, ref)));
+    (await tx.update(themes)
       .set({ cardFontFamily: "" })
-      .where(eq(themes.cardFontFamily, ref))
-      .run();
-    tx.delete(customFonts).where(eq(customFonts.id, fontId)).run();
+      .where(eq(themes.cardFontFamily, ref)));
+    (await tx.delete(customFonts).where(eq(customFonts.id, fontId)));
   });
   return { affectedThemes: affected.map((t) => t.name) };
 }
@@ -944,7 +969,7 @@ export async function deleteSetting(key: string): Promise<void> {
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 export async function getUserCount(): Promise<number> {
-  const rows = await db.select({ c: sql<number>`count(*)` }).from(users);
+  const rows = await db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(users);
   return rows[0]?.c ?? 0;
 }
 
@@ -981,15 +1006,16 @@ export async function createUser(
 export function createFirstUser(
   username: string,
   passwordHash: string,
-): UserRow | null {
-  return db.transaction((tx) => {
-    const rows = tx.select({ c: sql<number>`count(*)` }).from(users).all();
+): Promise<UserRow | null> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(167284233, 3)`);
+    const rows = (await tx.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(users));
     if ((rows[0]?.c ?? 0) > 0) return null;
     // #124: the bootstrap user is the instance's first ADMIN. The wizard's
     // register action passes role:'admin' explicitly; this API-setup path
     // must agree, or API-installed instances boot an 'owner' that cannot
     // administer anything (caught by live E2E).
-    return tx.insert(users).values({ username, passwordHash, role: "admin" }).returning().all()[0];
+    return (await tx.insert(users).values({ username, passwordHash, role: "admin" }).returning())[0];
   });
 }
 
@@ -1055,7 +1081,7 @@ export async function listAccountSummaries(): Promise<AccountSummaryRow[]> {
       pageSlug: sql<
         string | null
       >`(select p.slug from pages p where p.user_id = ${users.id}
-        order by p.is_default desc, instr(p.slug, '/') > 0, p.order_index, p.id limit 1)`,
+        order by p.is_default desc, strpos(p.slug, '/') > 0, p.order_index, p.id limit 1)`,
     })
     .from(users)
     .leftJoin(roles, eq(users.roleId, roles.id))
@@ -1109,7 +1135,7 @@ export async function deleteRole(roleId: number): Promise<void> {
 }
 
 export async function countUsersWithRole(roleId: number): Promise<number> {
-  const rows = await db.select({ c: sql<number>`count(*)` }).from(users).where(eq(users.roleId, roleId));
+  const rows = await db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(users).where(eq(users.roleId, roleId));
   return rows[0]?.c ?? 0;
 }
 
@@ -1159,7 +1185,7 @@ export async function listInstanceAdminIds(): Promise<number[]> {
 
 /** How many pages a user currently owns (pagesLimit enforcement). */
 export async function countPagesByOwner(userId: number): Promise<number> {
-  const rows = await db.select({ c: sql<number>`count(*)` }).from(pages).where(eq(pages.userId, userId));
+  const rows = await db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(pages).where(eq(pages.userId, userId));
   return rows[0]?.c ?? 0;
 }
 
@@ -1325,7 +1351,7 @@ export async function updateUserRoleById(userId: number, roleId: number | null):
 
 /** Stamp last_login_at on a successful sign-in (local or OIDC). */
 export async function touchLastLogin(userId: number): Promise<void> {
-  await db.update(users).set({ lastLoginAt: sql`(datetime('now'))` }).where(eq(users.id, userId));
+  await db.update(users).set({ lastLoginAt: utcNow }).where(eq(users.id, userId));
 }
 
 /**
@@ -1368,7 +1394,7 @@ export async function getSessionLimitSources(userId: number): Promise<{
 
 /** Action-based idle clock: refreshed (throttled by the caller) on admin ACTIONS. */
 export async function touchUserLastSeen(userId: number): Promise<void> {
-  await db.update(users).set({ lastSeenAt: sql`(datetime('now'))` }).where(eq(users.id, userId));
+  await db.update(users).set({ lastSeenAt: utcNow }).where(eq(users.id, userId));
 }
 
 /** Per-user session override (null = inherit role/global). */
@@ -1398,7 +1424,7 @@ export async function setPageOwner(pageId: number, userId: number | null): Promi
 /** The page owned by a given user, if any. */
 export async function getPageByOwner(userId: number): Promise<PageRow | null> {
   const rows = await db.select().from(pages).where(eq(pages.userId, userId))
-    .orderBy(desc(pages.isDefault), sql`instr(${pages.slug}, '/') > 0`, asc(pages.orderIndex), asc(pages.id)).limit(1);
+    .orderBy(desc(pages.isDefault), sql`strpos(${pages.slug}, '/') > 0`, asc(pages.orderIndex), asc(pages.id)).limit(1);
   return rows[0] ?? null;
 }
 
@@ -1419,23 +1445,19 @@ export async function getAnalyticsRetentionDays(): Promise<number> {
   return /^\d+$/.test(raw) ? Number(raw) : DEFAULT_ANALYTICS_RETENTION_DAYS;
 }
 
-// Cached retention window so we don't read settings on every pageview.
-let retentionCache: { days: number; at: number } = { days: -1, at: 0 };
+let nextAnalyticsPrune = 0;
 
-/** Opportunistically prune analytics older than the configured retention
- *  window (settings key `analyticsRetentionDays`). Reads the setting at most
- *  once per minute; a no-op when retention is set to 0 (keep forever). */
+// Throttle both the settings lookup and the deletes during traffic bursts.
 async function pruneAnalyticsIfDue(): Promise<void> {
   const now = Date.now();
-  if (now - retentionCache.at > 60_000) {
-    retentionCache = { days: await getAnalyticsRetentionDays(), at: now };
-  }
-  const { days } = retentionCache;
+  if (now < nextAnalyticsPrune) return;
+  nextAnalyticsPrune = now + 60_000;
+  const days = await getAnalyticsRetentionDays();
   if (days <= 0) return;
-  const cutoff = sql`datetime('now', ${`-${days} days`})`;
-  db.delete(analyticsPageviews).where(lt(analyticsPageviews.createdAt, cutoff)).run();
-  db.delete(analyticsClicks).where(lt(analyticsClicks.createdAt, cutoff)).run();
-  db.delete(analyticsSocialClicks).where(lt(analyticsSocialClicks.createdAt, cutoff)).run();
+  const cutoff = utcDaysAgo(days);
+  (await db.delete(analyticsPageviews).where(lt(analyticsPageviews.createdAt, cutoff)));
+  (await db.delete(analyticsClicks).where(lt(analyticsClicks.createdAt, cutoff)));
+  (await db.delete(analyticsSocialClicks).where(lt(analyticsSocialClicks.createdAt, cutoff)));
 }
 
 export async function recordPageview(
@@ -1467,22 +1489,21 @@ export async function recordClick(
 ): Promise<void> {
   // Wrap in a transaction so the analytics insert and the denormalized
   // clicksCount increment can't drift apart if one fails.
-  db.transaction((tx) => {
-    tx.insert(analyticsClicks).values({
+  await db.transaction(async (tx) => {
+    (await tx.insert(analyticsClicks).values({
       linkId,
       visitorHash,
       referrer: referrer ?? null,
       eventType,
       variant,
       source: source ?? null,
-    }).run();
+    }));
     // Popup opens are analytics-only: the denormalized counter stays a pure
     // outbound-click count (#93) so the links table never inflates CTR.
     if (eventType === "click") {
-      tx.update(links)
+      (await tx.update(links)
         .set({ clicksCount: sql`${links.clicksCount} + 1` })
-        .where(eq(links.id, linkId))
-        .run();
+        .where(eq(links.id, linkId)));
     }
   });
   // Same opportunistic prune as pageviews, so click-heavy pages (e.g. a page
@@ -1565,20 +1586,20 @@ export async function getDashboardStats(
   const clickOnly = eq(analyticsClicks.eventType, "click");
 
   const viewsQuery = pageFilter
-    ? db.select({ c: sql<number>`count(*)` }).from(analyticsPageviews).where(and(gt(analyticsPageviews.createdAt, since), pageFilter))
-    : db.select({ c: sql<number>`count(*)` }).from(analyticsPageviews).where(gt(analyticsPageviews.createdAt, since));
+    ? db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(analyticsPageviews).where(and(gt(analyticsPageviews.createdAt, since), pageFilter))
+    : db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(analyticsPageviews).where(gt(analyticsPageviews.createdAt, since));
   const viewRows = await viewsQuery;
   const totalViews = viewRows[0]?.c ?? 0;
 
   const uniqueQuery = pageFilter
-    ? db.select({ c: sql<number>`count(distinct ${analyticsPageviews.visitorHash})` }).from(analyticsPageviews).where(and(gt(analyticsPageviews.createdAt, since), pageFilter))
-    : db.select({ c: sql<number>`count(distinct ${analyticsPageviews.visitorHash})` }).from(analyticsPageviews).where(gt(analyticsPageviews.createdAt, since));
+    ? db.select({ c: sql<number>`count(distinct ${analyticsPageviews.visitorHash})`.mapWith(Number) }).from(analyticsPageviews).where(and(gt(analyticsPageviews.createdAt, since), pageFilter))
+    : db.select({ c: sql<number>`count(distinct ${analyticsPageviews.visitorHash})`.mapWith(Number) }).from(analyticsPageviews).where(gt(analyticsPageviews.createdAt, since));
   const uniqueRows = await uniqueQuery;
   const uniqueVisitors = uniqueRows[0]?.c ?? 0;
 
   const clickQuery = clickPageFilter
-    ? db.select({ c: sql<number>`count(*)` }).from(analyticsClicks).where(and(gt(analyticsClicks.createdAt, since), clickOnly, clickPageFilter))
-    : db.select({ c: sql<number>`count(*)` }).from(analyticsClicks).where(and(gt(analyticsClicks.createdAt, since), clickOnly));
+    ? db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(analyticsClicks).where(and(gt(analyticsClicks.createdAt, since), clickOnly, clickPageFilter))
+    : db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(analyticsClicks).where(and(gt(analyticsClicks.createdAt, since), clickOnly));
   const clickRows = await clickQuery;
   const totalClicks = clickRows[0]?.c ?? 0;
 
@@ -1586,23 +1607,23 @@ export async function getDashboardStats(
     ? db.select({
         id: analyticsClicks.linkId,
         title: links.title,
-        clicks: sql<number>`count(*)`,
+        clicks: sql<number>`count(*)`.mapWith(Number),
       })
       .from(analyticsClicks)
       .innerJoin(links, eq(links.id, analyticsClicks.linkId))
       .where(and(gt(analyticsClicks.createdAt, since), clickOnly, eq(links.pageId, pageId)))
-      .groupBy(analyticsClicks.linkId)
+      .groupBy(analyticsClicks.linkId, links.title)
       .orderBy(desc(sql`count(*)`))
       .limit(5)
     : db.select({
         id: analyticsClicks.linkId,
         title: links.title,
-        clicks: sql<number>`count(*)`,
+        clicks: sql<number>`count(*)`.mapWith(Number),
       })
       .from(analyticsClicks)
       .innerJoin(links, eq(links.id, analyticsClicks.linkId))
       .where(and(gt(analyticsClicks.createdAt, since), clickOnly))
-      .groupBy(analyticsClicks.linkId)
+      .groupBy(analyticsClicks.linkId, links.title)
       .orderBy(desc(sql`count(*)`))
       .limit(5);
   const topLinkRows = await topLinkQuery;
@@ -1614,39 +1635,39 @@ export async function getDashboardStats(
 
   const viewsPerDayRows = pageFilter
     ? await db.select({
-        date: sql<string>`date(${analyticsPageviews.createdAt})`,
-        views: sql<number>`count(*)`,
+        date: sql<string>`left(${analyticsPageviews.createdAt}, 10)`,
+        views: sql<number>`count(*)`.mapWith(Number),
       })
       .from(analyticsPageviews)
       .where(and(gt(analyticsPageviews.createdAt, since), pageFilter))
-      .groupBy(sql`date(${analyticsPageviews.createdAt})`)
-      .orderBy(asc(sql`date(${analyticsPageviews.createdAt})`))
+      .groupBy(sql`left(${analyticsPageviews.createdAt}, 10)`)
+      .orderBy(asc(sql`left(${analyticsPageviews.createdAt}, 10)`))
     : await db.select({
-        date: sql<string>`date(${analyticsPageviews.createdAt})`,
-        views: sql<number>`count(*)`,
+        date: sql<string>`left(${analyticsPageviews.createdAt}, 10)`,
+        views: sql<number>`count(*)`.mapWith(Number),
       })
       .from(analyticsPageviews)
       .where(gt(analyticsPageviews.createdAt, since))
-      .groupBy(sql`date(${analyticsPageviews.createdAt})`)
-      .orderBy(asc(sql`date(${analyticsPageviews.createdAt})`));
+      .groupBy(sql`left(${analyticsPageviews.createdAt}, 10)`)
+      .orderBy(asc(sql`left(${analyticsPageviews.createdAt}, 10)`));
 
   const clicksPerDayRows = clickPageFilter
     ? await db.select({
-        date: sql<string>`date(${analyticsClicks.createdAt})`,
-        clicks: sql<number>`count(*)`,
+        date: sql<string>`left(${analyticsClicks.createdAt}, 10)`,
+        clicks: sql<number>`count(*)`.mapWith(Number),
       })
       .from(analyticsClicks)
       .where(and(gt(analyticsClicks.createdAt, since), clickOnly, clickPageFilter))
-      .groupBy(sql`date(${analyticsClicks.createdAt})`)
-      .orderBy(asc(sql`date(${analyticsClicks.createdAt})`))
+      .groupBy(sql`left(${analyticsClicks.createdAt}, 10)`)
+      .orderBy(asc(sql`left(${analyticsClicks.createdAt}, 10)`))
     : await db.select({
-        date: sql<string>`date(${analyticsClicks.createdAt})`,
-        clicks: sql<number>`count(*)`,
+        date: sql<string>`left(${analyticsClicks.createdAt}, 10)`,
+        clicks: sql<number>`count(*)`.mapWith(Number),
       })
       .from(analyticsClicks)
       .where(and(gt(analyticsClicks.createdAt, since), clickOnly))
-      .groupBy(sql`date(${analyticsClicks.createdAt})`)
-      .orderBy(asc(sql`date(${analyticsClicks.createdAt})`));
+      .groupBy(sql`left(${analyticsClicks.createdAt}, 10)`)
+      .orderBy(asc(sql`left(${analyticsClicks.createdAt}, 10)`));
 
   const viewsMap = new Map<string, number>();
   for (const r of viewsPerDayRows) viewsMap.set(r.date, Number(r.views));
@@ -1673,8 +1694,8 @@ export async function getPreviousStats(
   pageId?: number,
 ): Promise<{ totalViews: number; totalClicks: number }> {
   const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-  const startShift = sql`datetime('now', ${`-${days * 2} days`})`;
-  const endShift = sql`datetime('now', ${`-${days} days`})`;
+  const startShift = utcDaysAgo(days * 2);
+  const endShift = utcDaysAgo(days);
 
   const pageFilter = pageId !== undefined ? eq(analyticsPageviews.pageId, pageId) : undefined;
   const clickPageFilter = pageId !== undefined
@@ -1682,12 +1703,12 @@ export async function getPreviousStats(
     : undefined;
 
   const viewRows = pageFilter
-    ? await db.select({ c: sql<number>`count(*)` }).from(analyticsPageviews).where(and(gt(analyticsPageviews.createdAt, startShift), lt(analyticsPageviews.createdAt, endShift), pageFilter))
-    : await db.select({ c: sql<number>`count(*)` }).from(analyticsPageviews).where(and(gt(analyticsPageviews.createdAt, startShift), lt(analyticsPageviews.createdAt, endShift)));
+    ? await db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(analyticsPageviews).where(and(gt(analyticsPageviews.createdAt, startShift), lt(analyticsPageviews.createdAt, endShift), pageFilter))
+    : await db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(analyticsPageviews).where(and(gt(analyticsPageviews.createdAt, startShift), lt(analyticsPageviews.createdAt, endShift)));
 
   const clickRows = clickPageFilter
-    ? await db.select({ c: sql<number>`count(*)` }).from(analyticsClicks).where(and(gt(analyticsClicks.createdAt, startShift), lt(analyticsClicks.createdAt, endShift), eq(analyticsClicks.eventType, "click"), clickPageFilter))
-    : await db.select({ c: sql<number>`count(*)` }).from(analyticsClicks).where(and(gt(analyticsClicks.createdAt, startShift), lt(analyticsClicks.createdAt, endShift), eq(analyticsClicks.eventType, "click")));
+    ? await db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(analyticsClicks).where(and(gt(analyticsClicks.createdAt, startShift), lt(analyticsClicks.createdAt, endShift), eq(analyticsClicks.eventType, "click"), clickPageFilter))
+    : await db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(analyticsClicks).where(and(gt(analyticsClicks.createdAt, startShift), lt(analyticsClicks.createdAt, endShift), eq(analyticsClicks.eventType, "click")));
 
   return {
     totalViews: viewRows[0]?.c ?? 0,
@@ -1738,13 +1759,13 @@ export async function getAnalyticsBreakdown(
     : gt(analyticsPageviews.createdAt, since);
 
   const [referrerRows, deviceRows, countryRows] = await Promise.all([
-    db.select({ label: analyticsPageviews.referrer, count: sql<number>`count(*)` })
+    db.select({ label: analyticsPageviews.referrer, count: sql<number>`count(*)`.mapWith(Number) })
       .from(analyticsPageviews).where(baseWhere)
       .groupBy(analyticsPageviews.referrer).orderBy(desc(sql`count(*)`)).limit(8),
-    db.select({ label: analyticsPageviews.deviceType, count: sql<number>`count(*)` })
+    db.select({ label: analyticsPageviews.deviceType, count: sql<number>`count(*)`.mapWith(Number) })
       .from(analyticsPageviews).where(baseWhere)
       .groupBy(analyticsPageviews.deviceType).orderBy(desc(sql`count(*)`)).limit(8),
-    db.select({ label: analyticsPageviews.country, count: sql<number>`count(*)` })
+    db.select({ label: analyticsPageviews.country, count: sql<number>`count(*)`.mapWith(Number) })
       .from(analyticsPageviews).where(baseWhere)
       .groupBy(analyticsPageviews.country).orderBy(desc(sql`count(*)`)).limit(8),
   ]);
@@ -1766,26 +1787,26 @@ export async function getLinkStats(linkId: number, range: AnalyticsRange = "30d"
   const seriesDates = buildDaySeries(await rangeDayCount(range));
 
   const totalRows = await db
-    .select({ c: sql<number>`count(*)` })
+    .select({ c: sql<number>`count(*)`.mapWith(Number) })
     .from(analyticsClicks)
     .where(and(eq(analyticsClicks.linkId, linkId), gt(analyticsClicks.createdAt, since), eq(analyticsClicks.eventType, "click")));
   const totalClicks = totalRows[0]?.c ?? 0;
 
   const perDayRows = await db
     .select({
-      date: sql<string>`date(${analyticsClicks.createdAt})`,
-      clicks: sql<number>`count(*)`,
+      date: sql<string>`left(${analyticsClicks.createdAt}, 10)`,
+      clicks: sql<number>`count(*)`.mapWith(Number),
     })
     .from(analyticsClicks)
     .where(and(eq(analyticsClicks.linkId, linkId), gt(analyticsClicks.createdAt, since), eq(analyticsClicks.eventType, "click")))
-    .groupBy(sql`date(${analyticsClicks.createdAt})`)
-    .orderBy(asc(sql`date(${analyticsClicks.createdAt})`));
+    .groupBy(sql`left(${analyticsClicks.createdAt}, 10)`)
+    .orderBy(asc(sql`left(${analyticsClicks.createdAt}, 10)`));
   const clicksMap = new Map<string, number>();
   for (const r of perDayRows) clicksMap.set(r.date, Number(r.clicks));
   const clicksPerDay = seriesDates.map((date) => ({ date, clicks: clicksMap.get(date) ?? 0 }));
 
   const refRows = await db
-    .select({ label: analyticsClicks.referrer, count: sql<number>`count(*)` })
+    .select({ label: analyticsClicks.referrer, count: sql<number>`count(*)`.mapWith(Number) })
     .from(analyticsClicks)
     .where(and(eq(analyticsClicks.linkId, linkId), gt(analyticsClicks.createdAt, since), eq(analyticsClicks.eventType, "click")))
     .groupBy(analyticsClicks.referrer)
@@ -1797,7 +1818,7 @@ export async function getLinkStats(linkId: number, range: AnalyticsRange = "30d"
   // hot redirect path). Only rows with a variant label are counted, so links
   // without a test pay nothing extra in the UI beyond an empty breakdown.
   const variantRows = await db
-    .select({ variant: analyticsClicks.variant, count: sql<number>`count(*)` })
+    .select({ variant: analyticsClicks.variant, count: sql<number>`count(*)`.mapWith(Number) })
     .from(analyticsClicks)
     .where(and(eq(analyticsClicks.linkId, linkId), gt(analyticsClicks.createdAt, since), eq(analyticsClicks.eventType, "click"), isNotNull(analyticsClicks.variant)))
     .groupBy(analyticsClicks.variant);
@@ -1859,7 +1880,7 @@ export async function addSubscriber(
 }
 
 export async function getSubscriberCount(): Promise<number> {
-  const rows = await db.select({ c: sql<number>`count(*)` }).from(subscribers);
+  const rows = await db.select({ c: sql<number>`count(*)`.mapWith(Number) }).from(subscribers);
   return rows[0]?.c ?? 0;
 }
 
@@ -1868,7 +1889,7 @@ export async function getAllSubscribers(): Promise<SubscriberRow[]> {
 }
 
 export async function clearSubscribers(): Promise<void> {
-  db.delete(subscribers).run();
+  (await db.delete(subscribers));
 }
 
 // ─── Invitations, stage 1 (#124 follow-up) ──────────────────────────────────
@@ -1900,7 +1921,7 @@ export async function getValidInvite(tokenHash: string): Promise<InviteRow | nul
 export async function markInviteUsed(inviteId: number, userId: number): Promise<void> {
   await db
     .update(invites)
-    .set({ usedAt: sql`(datetime('now'))`, usedBy: userId })
+    .set({ usedAt: utcNow, usedBy: userId })
     .where(eq(invites.id, inviteId));
 }
 
@@ -1913,5 +1934,5 @@ export async function revokeInvite(inviteId: number): Promise<void> {
 }
 
 export async function purgeExpiredInvites(): Promise<void> {
-  await db.delete(invites).where(lt(invites.expiresAt, sql`datetime('now')`));
+  await db.delete(invites).where(lt(invites.expiresAt, utcNow));
 }

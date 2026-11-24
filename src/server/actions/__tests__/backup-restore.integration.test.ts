@@ -7,14 +7,14 @@
  *
  * Follows the pattern in src/server/queries/__tests__/links.integration.test.ts:
  * imports "./integration-setup" (relative to queries/__tests__) which mocks
- * @/db with a real sql.js + drizzle connection, runs migrations, and mocks
+ * @/db with a real PostgreSQL + Drizzle connection, runs migrations, and mocks
  * @/lib/auth with a valid session.
  */
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import { eq } from "drizzle-orm";
 
 // Pull in the integration DB setup BEFORE importing any module that touches
-// @/db. This mocks @/db with a sql.js connection and @/lib/auth with a valid
+// @/db. This mocks @/db with a disposable PostgreSQL database and @/lib/auth with a valid
 // session, exactly like the queries-layer integration tests.
 import "../../queries/__tests__/integration-setup";
 import { db } from "../../queries/__tests__/integration-setup";
@@ -57,10 +57,10 @@ describe("[integration] backup → restore round-trip", () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let snapshot: any;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     // ── Seed known data into the four backed-up tables ────────────────
     // 1 profile row
-    db.insert(schema.profile)
+    (await db.insert(schema.profile)
       .values({
         id: 1,
         displayName: "Ada Lovelace",
@@ -68,8 +68,7 @@ describe("[integration] backup → restore round-trip", () => {
         avatarUrl: "https://example.com/ada.png",
         badgeText: "Founder",
         socialLinks: '[{"platform":"x","url":"https://x.com/ada"}]',
-      })
-      .run();
+      }));
 
     // 3 link rows
     const linkSeed = [
@@ -102,21 +101,19 @@ describe("[integration] backup → restore round-trip", () => {
       },
     ];
     for (const l of linkSeed) {
-      db.insert(schema.links)
-        .values({ pageId: 1, ...l })
-        .run();
+      (await db.insert(schema.links)
+        .values({ pageId: 1, ...l }));
     }
 
     // 2 settings rows
-    db.insert(schema.settings)
+    (await db.insert(schema.settings)
       .values([
         { key: "siteTitle", value: "Ada's Links" },
         { key: "analyticsRetentionDays", value: "30" },
-      ])
-      .run();
+      ]));
 
     // 2 theme rows
-    db.insert(schema.themes)
+    (await db.insert(schema.themes)
       .values([
         {
           name: "Midnight",
@@ -132,11 +129,10 @@ describe("[integration] backup → restore round-trip", () => {
           mode: "light",
           primaryColor: "#ffffff",
         },
-      ])
-      .run();
+      ]));
 
     // 1 uploaded font row (#82) + a theme using it
-    db.insert(schema.customFonts)
+    (await db.insert(schema.customFonts)
       .values({
         id: 5,
         name: "Brand Sans",
@@ -145,9 +141,8 @@ describe("[integration] backup → restore round-trip", () => {
         url: "/api/uploads/aaaabbbb.woff2",
         sizeBytes: 20480,
         format: "woff2",
-      })
-      .run();
-    db.insert(schema.themes)
+      }));
+    (await db.insert(schema.themes)
       .values({
         name: "Branded",
         ownerId: 1,
@@ -155,24 +150,22 @@ describe("[integration] backup → restore round-trip", () => {
         isPreset: false,
         mode: "dark",
         fontFamily: "custom:5",
-      })
-      .run();
+      }));
     // Dangling reference: custom font id 99 is NOT in the backup's font set
     // (seeded directly here, missing from custom_fonts) — restore must reset
     // this theme to inter rather than keep the dead reference.
-    db.insert(schema.themes)
+    (await db.insert(schema.themes)
       .values({
         name: "Dangling",
         isActive: false,
         isPreset: false,
         mode: "dark",
         fontFamily: "custom:99",
-      })
-      .run();
+      }));
 
     // Also seed an analytics row so we can assert restore leaves analytics
     // untouched.
-    db.insert(schema.analyticsPageviews)
+    (await db.insert(schema.analyticsPageviews)
       .values({
         pageId: 1,
         visitorHash: "hash-aaa",
@@ -180,8 +173,7 @@ describe("[integration] backup → restore round-trip", () => {
         referrer: "https://google.com",
         country: "US",
         deviceType: "desktop",
-      })
-      .run();
+      }));
   });
 
   it("captures a snapshot reflecting the seed data", async () => {
@@ -205,7 +197,7 @@ describe("[integration] backup → restore round-trip", () => {
 
     // ── Mutate the DB after the snapshot ──────────────────────────────
     // add two extra links
-    db.insert(schema.links)
+    (await db.insert(schema.links)
       .values([
         {
           pageId: 1,
@@ -221,20 +213,18 @@ describe("[integration] backup → restore round-trip", () => {
           type: "url",
           orderIndex: 11,
         },
-      ])
-      .run();
+      ]));
     // change the profile
-    db.update(schema.profile)
+    (await db.update(schema.profile)
       .set({ displayName: "Changed Name", bio: "Changed bio" })
-      .where(eqProfileId(1))
-      .run();
+      .where(eqProfileId(1)));
     // delete one theme
-    db.delete(schema.themes).run(); // wipe all themes to prove restore brings them back
+    (await db.delete(schema.themes)); // wipe all themes to prove restore brings them back
 
     // Sanity: the DB is now in a mutated state.
-    const mutatedLinks = db.select().from(schema.links).all();
+    const mutatedLinks = (await db.select().from(schema.links));
     expect(mutatedLinks.length).toBe(5);
-    const mutatedThemes = db.select().from(schema.themes).all();
+    const mutatedThemes = (await db.select().from(schema.themes));
     expect(mutatedThemes.length).toBe(0);
 
     // ── Restore from the snapshot ─────────────────────────────────────
@@ -243,7 +233,7 @@ describe("[integration] backup → restore round-trip", () => {
 
     // ── Verify exact restoration of each table ────────────────────────
     // profile: 1 row, original values
-    const profileRows = db.select().from(schema.profile).all();
+    const profileRows = (await db.select().from(schema.profile));
     expect(profileRows).toHaveLength(1);
     expect(profileRows[0]!.displayName).toBe("Ada Lovelace");
     expect(profileRows[0]!.bio).toBe("First programmer");
@@ -254,7 +244,7 @@ describe("[integration] backup → restore round-trip", () => {
     );
 
     // links: 3 rows, original field values
-    const linkRows = db.select().from(schema.links).all();
+    const linkRows = (await db.select().from(schema.links));
     expect(linkRows).toHaveLength(3);
     const byOrder = [...linkRows].sort((a, b) => a.orderIndex - b.orderIndex);
 
@@ -275,7 +265,7 @@ describe("[integration] backup → restore round-trip", () => {
     expect(byOrder[2]!.isActive).toBe(false);
 
     // settings: 2 rows, original key/value pairs
-    const settingRows = db.select().from(schema.settings).all();
+    const settingRows = (await db.select().from(schema.settings));
     expect(settingRows).toHaveLength(2);
     const settingMap = Object.fromEntries(
       settingRows.map((s) => [s.key, s.value]),
@@ -284,7 +274,7 @@ describe("[integration] backup → restore round-trip", () => {
     expect(settingMap["analyticsRetentionDays"]).toBe("30");
 
     // themes: original names + cosmetic values (2 seeded + Branded + Dangling)
-    const themeRows = db.select().from(schema.themes).all();
+    const themeRows = (await db.select().from(schema.themes));
     expect(themeRows).toHaveLength(4);
     const themeByName = Object.fromEntries(
       themeRows.map((t) => [t.name, t]),
@@ -298,7 +288,7 @@ describe("[integration] backup → restore round-trip", () => {
 
     // Custom fonts restored with rows intact (#82), including the id the
     // Branded theme references.
-    const fontRows = db.select().from(schema.customFonts).all();
+    const fontRows = (await db.select().from(schema.customFonts));
     expect(fontRows).toHaveLength(1);
     expect(fontRows[0]!.id).toBe(5);
     expect(fontRows[0]!.family).toBe("LB Custom 5");
@@ -309,7 +299,7 @@ describe("[integration] backup → restore round-trip", () => {
     expect(themeByName["Dangling"].fontFamily).toBe("inter");
 
     // ── Analytics must be untouched by restore ────────────────────────
-    const pageviewRows = db.select().from(schema.analyticsPageviews).all();
+    const pageviewRows = (await db.select().from(schema.analyticsPageviews));
     expect(pageviewRows).toHaveLength(1);
     expect(pageviewRows[0]!.visitorHash).toBe("hash-aaa");
     expect(pageviewRows[0]!.referrer).toBe("https://google.com");
@@ -328,7 +318,7 @@ describe("[integration] backup → restore round-trip", () => {
     expect(result.success === false && result.error).toMatch(/invalid json/i);
 
     // Data should be unchanged — still 3 links from the successful restore.
-    expect(db.select().from(schema.links).all()).toHaveLength(3);
+    expect((await db.select().from(schema.links))).toHaveLength(3);
   });
 
   it("rejects an unsupported backup version with an error", async () => {
@@ -342,7 +332,7 @@ describe("[integration] backup → restore round-trip", () => {
       /unsupported backup version/i,
     );
     // unchanged
-    expect(db.select().from(schema.links).all()).toHaveLength(3);
+    expect((await db.select().from(schema.links))).toHaveLength(3);
   });
 
   it("rejects malformed row data with an error and does not mutate data", async () => {
@@ -362,7 +352,7 @@ describe("[integration] backup → restore round-trip", () => {
     expect(result.success).toBe(false);
     expect(result.success === false && result.error).toMatch(/malformed/i);
     // unchanged
-    expect(db.select().from(schema.links).all()).toHaveLength(3);
+    expect((await db.select().from(schema.links))).toHaveLength(3);
   });
 });
 

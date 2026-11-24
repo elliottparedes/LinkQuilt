@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { utcDaysAgo } from "@/db/sql";
 
 export type AnalyticsRange = "7d" | "30d" | "90d";
 
@@ -14,6 +14,6 @@ export function parseRange(v: string | null): AnalyticsRange {
 /** SQL expression bounding the start of the analytics window. */
 export function sinceExpr(range: AnalyticsRange) {
   const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-  return sql`datetime('now', ${`-${days} days`})`;
+  return utcDaysAgo(days);
 }
 

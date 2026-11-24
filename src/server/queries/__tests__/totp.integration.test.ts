@@ -119,7 +119,7 @@ describe("TOTP integration", () => {
   it("backup payload has no users table — totp data structurally excluded", async () => {
     // data.ts's export reads profile/links/sections/settings/themes/customFonts
     // — never the users table. Source-level assertion (importing data.ts here
-    // would load the real @/db and bypass the sql.js mock).
+    // would load the real @/db and bypass the PostgreSQL mock).
     const source = await import("node:fs").then((fs) =>
       fs.readFileSync("src/server/actions/data.ts", "utf8"),
     );

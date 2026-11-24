@@ -93,10 +93,10 @@ async function restoredConfig(id: number): Promise<AbConfig | null> {
 }
 
 describe("[integration] A/B config restore sanitization (#81)", () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     // One page for the whole file — applyBackupPayload doesn't touch pages,
     // but seedPage has a UNIQUE slug so per-test seeding would collide.
-    seedPage();
+    (await seedPage());
   });
   it("round-trips a valid running config verbatim", async () => {
     const res = await restoreWith([
@@ -270,10 +270,10 @@ describe("[integration] A/B config restore sanitization (#81)", () => {
       startsAt: "2026-06-01T08:30",
       endsAt: "2026-06-30T18:00",
     };
-    const seeded = seedLink({
+    const seeded = (await seedLink({
       url: "https://example.com/winner",
       abConfig: JSON.stringify(archived),
-    });
+    }));
     await updateSetting("abAutoPromote", "on");
 
     // 1) Export: whole rows verbatim — no field drops on the way OUT.
@@ -327,14 +327,14 @@ describe("[integration] A/B config restore sanitization (#81)", () => {
       endsAt: "2026-11-08T10:00",
     };
     const stored = JSON.stringify(cfg);
-    const link = seedLink({ title: "Export-side", abConfig: stored });
+    const link = (await seedLink({ title: "Export-side", abConfig: stored }));
 
     const payload = await getBackupPayload();
     const kv = payload.settings.find((s) => s.key === AB_AUTO_PROMOTE_SETTING);
     expect(kv?.value).toBe("on");
 
     const inPayload = payload.links.find((l) => l.id === link.id)?.abConfig ?? null;
-    const live = db.select({ abConfig: links.abConfig }).from(links).where(eq(links.id, link.id)).get();
+    const live = (await db.select({ abConfig: links.abConfig }).from(links).where(eq(links.id, link.id)).limit(1))[0];
     expect(inPayload).toBe(stored); // verbatim, window + winner intact
     expect(inPayload).toBe(live?.abConfig ?? null); // payload == live row, byte-for-byte
     await updateSetting(AB_AUTO_PROMOTE_SETTING, "off"); // do not leak into later tests
@@ -375,12 +375,11 @@ describe("[integration] A/B config restore sanitization (#81)", () => {
     expect(resB.headers.get("location")).toBe("https://example.com/short");
 
     // Real recordClick ran (prod + human) — labels attributed per split:
-    const rows = db
-      .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)` })
+    const rows = (await db
+      .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)`.mapWith(Number) })
       .from(analyticsClicks)
       .where(eq(analyticsClicks.linkId, 501))
-      .groupBy(analyticsClicks.variant)
-      .all();
+      .groupBy(analyticsClicks.variant));
     expect(rows).toEqual([
       { variant: "A", c: 1 },
       { variant: "B", c: 1 },

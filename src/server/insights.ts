@@ -69,7 +69,7 @@ export async function getTrafficSources(
   const rows = await db
     .select({
       source: analyticsPageviews.source,
-      count: sql<number>`count(*)`,
+      count: sql<number>`count(*)`.mapWith(Number),
     })
     .from(analyticsPageviews)
     .where(pageviewWhere(range, pageId))
@@ -98,7 +98,7 @@ export async function getLinkRates(
   const countRows = await db
     .select({
       id: analyticsClicks.linkId,
-      clicks: sql<number>`count(*)`,
+      clicks: sql<number>`count(*)`.mapWith(Number),
     })
     .from(analyticsClicks)
     .innerJoin(links, eq(links.id, analyticsClicks.linkId))
@@ -112,7 +112,7 @@ export async function getLinkRates(
     .groupBy(analyticsClicks.linkId);
 
   const viewRows = await db
-    .select({ c: sql<number>`count(*)` })
+    .select({ c: sql<number>`count(*)`.mapWith(Number) })
     .from(analyticsPageviews)
     .where(and(gt(analyticsPageviews.createdAt, since), eq(analyticsPageviews.pageId, pageId)));
   const views = Number(viewRows[0]?.c ?? 0);
@@ -148,15 +148,15 @@ export async function getViewHeatmap(
 ): Promise<HeatCell[]> {
   const rows = await db
     .select({
-      dow: sql<number>`cast(strftime('%w', ${analyticsPageviews.createdAt}) as integer)`,
-      hour: sql<number>`cast(strftime('%H', ${analyticsPageviews.createdAt}) as integer)`,
-      count: sql<number>`count(*)`,
+      dow: sql<number>`extract(dow from cast(${analyticsPageviews.createdAt} as timestamp))::integer`,
+      hour: sql<number>`extract(hour from cast(${analyticsPageviews.createdAt} as timestamp))::integer`,
+      count: sql<number>`count(*)`.mapWith(Number),
     })
     .from(analyticsPageviews)
     .where(pageviewWhere(range, pageId))
     .groupBy(
-      sql`strftime('%w', ${analyticsPageviews.createdAt})`,
-      sql`strftime('%H', ${analyticsPageviews.createdAt})`,
+      sql`extract(dow from cast(${analyticsPageviews.createdAt} as timestamp))`,
+      sql`extract(hour from cast(${analyticsPageviews.createdAt} as timestamp))`,
     );
 
   return rows.map((row) => ({
@@ -265,7 +265,7 @@ export async function getSocialTaps(
   const rows = await db
     .select({
       platform: analyticsSocialClicks.platform,
-      count: sql<number>`count(*)`,
+      count: sql<number>`count(*)`.mapWith(Number),
     })
     .from(analyticsSocialClicks)
     .where(where)

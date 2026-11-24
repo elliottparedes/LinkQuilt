@@ -85,7 +85,10 @@ const nextConfig: NextConfig = {
   // or may not include them, which would silently break migrations on fresh
   // deploys.
   outputFileTracingIncludes: {
-    "/": ["./src/db/migrations/**/*"],
+    "/*": ["./src/db/postgres/**/*.sql", "./src/db/postgres/meta/_journal.json"],
+  },
+  outputFileTracingExcludes: {
+    "/*": ["./.env*", "./data/**", "./data-demo/**"],
   },
 
   // Allow Server Actions from external IPs during dev (Tailscale, LAN, etc.)
@@ -101,10 +104,7 @@ const nextConfig: NextConfig = {
           .replace(/\/$/, ""),
       ) ?? [],
 
-  // better-sqlite3 and @node-rs/argon2 are native modules — exclude them from
-  // the server bundling so the standalone server loads them from node_modules
-  // at runtime.
-  serverExternalPackages: ["better-sqlite3", "@node-rs/argon2"],
+  serverExternalPackages: ["pg", "@node-rs/argon2"],
 
   // Tree-shake large barrel-export packages to reduce client bundle size.
   experimental: {

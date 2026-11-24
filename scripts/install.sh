@@ -3,10 +3,8 @@
 # LinkBreeze — One-line installer
 #
 # Usage:
-#   curl -fsSL https://linkbreeze.omnirise.dev/install.sh | bash
-#
-# Or clone and run locally:
-#   bash scripts/install.sh
+#   LINKBREEZE_ENV_FILE=/path/to/linkbreeze.env bash scripts/install.sh
+# The env file must contain the PostgreSQL DATABASE_URL.
 #
 # What it does:
 #   1. Detects Docker or Podman (prefers Docker)
@@ -35,10 +33,16 @@ warn()    { echo -e "${YELLOW}⚠${NC}  $*"; }
 error()   { echo -e "${RED}✗${NC}  $*" >&2; }
 
 # ── Config ───────────────────────────────────────────────────────────────────
-IMAGE="docker.io/omnirise/linkbreeze:latest"
+IMAGE="ghcr.io/elliottparedes/linkquilt:latest"
 CONTAINER_NAME="linkbreeze"
 PORT="${LINKBREEZE_PORT:-3000}"
 DATA_VOLUME="linkbreeze-data"
+ENV_FILE="${LINKBREEZE_ENV_FILE:-}"
+if [[ -z "$ENV_FILE" || ! -r "$ENV_FILE" ]] || ! grep -q '^DATABASE_URL=postgres' "$ENV_FILE"; then
+    error "Set LINKBREEZE_ENV_FILE to a readable file with DATABASE_URL."
+    exit 1
+fi
+ENV_FILE="$(realpath -- "$ENV_FILE")"
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 cat << 'EOF'
@@ -104,6 +108,7 @@ if [[ "$RUNTIME" == "docker" ]]; then
     "$RUNTIME" run -d \
         --name "$CONTAINER_NAME" \
         --restart unless-stopped \
+        --env-file "$ENV_FILE" \
         -p "${PORT}:3000" \
         -v "${DATA_VOLUME}:/app/data" \
         "$IMAGE"
@@ -113,6 +118,7 @@ else
     "$RUNTIME" run -d \
         --name "$CONTAINER_NAME" \
         --restart unless-stopped \
+        --env-file "$ENV_FILE" \
         -p "${PORT}:3000" \
         -v "${DATA_VOLUME}:/app/data" \
         "$IMAGE"
@@ -163,6 +169,7 @@ Type=simple
 ExecStartPre=-/usr/bin/${RUNTIME} rm -f ${CONTAINER_NAME}
 ExecStart=/usr/bin/${RUNTIME} run --name ${CONTAINER_NAME} \\
     --restart no \\
+    --env-file "${ENV_FILE}" \\
     -p ${PORT}:3000 \\
     -v ${DATA_VOLUME}:/app/data \\
     ${IMAGE}

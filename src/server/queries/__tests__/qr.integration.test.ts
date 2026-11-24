@@ -16,8 +16,8 @@ import { parseQrStyle, serializeQrStyle } from "@/lib/qr-style";
 let pageId: number;
 let slug: string;
 
-beforeAll(() => {
-  const page = seedPage();
+beforeAll(async () => {
+  const page = (await seedPage());
   pageId = page.id;
   slug = page.slug;
 });

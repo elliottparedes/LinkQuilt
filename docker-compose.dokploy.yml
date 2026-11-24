@@ -8,6 +8,8 @@ services:
       - "3000"
     environment:
       BASE_URL: ${BASE_URL:?Set BASE_URL in Dokploy to your public HTTPS URL}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in Dokploy}
+      LINKBREEZE_START_FRESH: ${LINKBREEZE_START_FRESH:-false}
       SECRET_KEY: ${SECRET_KEY:-}
     volumes:
       - linkbreeze-data:/app/data

@@ -230,6 +230,13 @@ function decodePagePath(pathname: string): string {
   }).join("/");
 }
 
+export function getCanonicalPageSlugs(pathname: string): string[] {
+  const slug = decodePagePath(pathname.replace(/\/+$/, "")).slice(1).toLowerCase();
+  if (!slug) return [];
+  const parent = slug.replace(/\/(privacy|opengraph-image)$/, "");
+  return parent === slug ? [slug] : [slug, parent];
+}
+
 function matchesPagePath(p: string, slug: string): boolean {
   return (
     p === "/" ||

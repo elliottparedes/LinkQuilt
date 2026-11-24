@@ -38,16 +38,16 @@ function get(query = ""): NextRequest {
 
 beforeAll(async () => {
   KEY = (await createApiKey()).key;
-  pageId = seedPage().id;
+  pageId = (await seedPage()).id;
   // 5 links with explicit order indexes (0..4) via createLink's order logic:
   // seed directly so orderIndex is deterministic.
   for (let i = 0; i < 5; i++) {
-    seedLink({
+    (await seedLink({
       title: `Page link ${i}`,
       url: `https://page${i}.example`,
       pageId,
       orderIndex: i,
-    });
+    }));
   }
 });
 
@@ -182,9 +182,9 @@ describe("GET /api/v1/links — cursor pagination", () => {
 describe("GET /api/v1/links — keyset tie-breaking (E.5 debt)", () => {
   it("rows sharing an orderIndex are walked by id — no skip, no duplicate", async () => {
     // Two links deliberately tied at orderIndex=0 (id ascending), one after.
-    seedLink({ title: "Tie A", url: "https://tie-a.example", pageId, orderIndex: 0 });
-    seedLink({ title: "Tie B", url: "https://tie-b.example", pageId, orderIndex: 0 });
-    seedLink({ title: "After tie", url: "https://after-tie.example", pageId, orderIndex: 1 });
+    (await seedLink({ title: "Tie A", url: "https://tie-a.example", pageId, orderIndex: 0 }));
+    (await seedLink({ title: "Tie B", url: "https://tie-b.example", pageId, orderIndex: 0 }));
+    (await seedLink({ title: "After tie", url: "https://after-tie.example", pageId, orderIndex: 1 }));
 
     const seen: string[] = [];
     let cursor: string | null = null;
@@ -208,11 +208,10 @@ describe("GET /api/v1/links — keyset tie-breaking (E.5 debt)", () => {
 
     // Shared-harness hygiene: remove the fixtures so later describes still
     // see exactly the original 5 links.
-    db.delete(schema.links)
+    (await db.delete(schema.links)
       .where(
         inArray(schema.links.title, ["Tie A", "Tie B", "After tie"]),
-      )
-      .run();
+      ));
   });
 });
 
@@ -292,7 +291,7 @@ describe("GET /api/v1/links — sparse fieldsets", () => {
       expect(row.redirectSlug).toBeNull();
     }
     // A seeded row's actual column is readable through the projection.
-    const all = db.select().from(schema.links).all();
+    const all = (await db.select().from(schema.links));
     expect(all.length).toBe(5);
   });
 });

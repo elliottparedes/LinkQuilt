@@ -78,13 +78,12 @@ function oppositePair(linkId: number) {
   return { a: a!, b: b! };
 }
 
-function counts(linkId: number) {
-  return db
-    .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)` })
+async function counts(linkId: number) {
+  return (await db
+    .select({ variant: analyticsClicks.variant, c: sql<number>`count(*)`.mapWith(Number) })
     .from(analyticsClicks)
     .where(eq(analyticsClicks.linkId, linkId))
-    .groupBy(analyticsClicks.variant)
-    .all();
+    .groupBy(analyticsClicks.variant));
 }
 
 async function go(id: number, visitor: string) {
@@ -105,12 +104,12 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
   it("PAUSED: both sides get link.url; clicks recorded UNLABELED", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.mocked(isBot).mockReturnValue(false);
-    const link = seedLink({
+    const link = (await seedLink({
       url: "https://example.com/own",
       abConfig: serializeAbConfig({ ...base, status: "paused" }),
-    });
+    }));
     await bothGet(link.id, "https://example.com/own");
-    expect(counts(link.id)).toEqual([{ variant: null, c: 2 }]);
+    expect((await counts(link.id))).toEqual([{ variant: null, c: 2 }]);
     vi.unstubAllEnvs();
   });
 
@@ -119,7 +118,7 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
     vi.mocked(isBot).mockReturnValue(false);
     // Stale/edited config: urlB points somewhere ELSE than the pinned
     // winner URL promote left on link.url — archived must never consult it.
-    const link = seedLink({
+    const link = (await seedLink({
       url: "https://example.com/pinned-winner",
       abConfig: serializeAbConfig({
         ...base,
@@ -127,9 +126,9 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
         winner: "B",
         urlB: "https://example.com/short",
       }),
-    });
+    }));
     await bothGet(link.id, "https://example.com/pinned-winner");
-    expect(counts(link.id)).toEqual([{ variant: null, c: 2 }]);
+    expect((await counts(link.id))).toEqual([{ variant: null, c: 2 }]);
     vi.unstubAllEnvs();
   });
 
@@ -137,36 +136,36 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
     vi.stubEnv("NODE_ENV", "production");
     vi.mocked(isBot).mockReturnValue(false);
     // Whole window in the past (valid schema: end after start) -> closed.
-    const link = seedLink({
+    const link = (await seedLink({
       url: "https://example.com/own-window",
       abConfig: serializeAbConfig({
         ...base,
         startsAt: "2026-01-01T00:00",
         endsAt: "2026-02-01T00:00",
       }),
-    });
+    }));
     await bothGet(link.id, "https://example.com/own-window");
-    expect(counts(link.id)).toEqual([{ variant: null, c: 2 }]);
+    expect((await counts(link.id))).toEqual([{ variant: null, c: 2 }]);
     vi.unstubAllEnvs();
   });
 
   it("E.67: setAbTestStatus flip — pause kills the split for the SAME visitors, resume brings it back", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.mocked(isBot).mockReturnValue(false);
-    const link = seedLink({
+    const link = (await seedLink({
       url: "https://example.com/own-flip",
       abConfig: serializeAbConfig(base),
-    });
+    }));
     const { a, b } = oppositePair(link.id);
-    const tally = () =>
-      Object.fromEntries(counts(link.id).map((r) => [String(r.variant), r.c]));
+    const tally = async () =>
+      Object.fromEntries((await counts(link.id)).map((r) => [String(r.variant), r.c]));
 
     // RUNNING: split serves (opposite visitors → opposite urls), labeled.
     expect((await go(link.id, a)).headers.get("location")).toBe(
       "https://example.com/own-flip",
     );
     expect((await go(link.id, b)).headers.get("location")).toBe(base.urlB);
-    expect(tally()).toEqual({ A: 1, B: 1 });
+    expect(await tally()).toEqual({ A: 1, B: 1 });
 
     // PAUSE through the REAL action -> config flips, split stops for the
     // SAME visitors on their very next requests (both → link.url) and
@@ -189,7 +188,7 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
     expect((await go(link.id, b)).headers.get("location")).toBe(
       "https://example.com/own-flip",
     );
-    expect(tally()).toEqual({ A: 1, B: 1, null: 2 });
+    expect(await tally()).toEqual({ A: 1, B: 1, null: 2 });
 
     // RESUME: split returns for the SAME pair; new clicks label again.
     const resumed = await setAbTestStatus(statusFd(link.id, "running"));
@@ -202,7 +201,7 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
       "https://example.com/own-flip",
     );
     expect((await go(link.id, b)).headers.get("location")).toBe(base.urlB);
-    expect(tally()).toEqual({ A: 2, B: 2, null: 2 });
+    expect(await tally()).toEqual({ A: 2, B: 2, null: 2 });
 
     vi.unstubAllEnvs();
   });
@@ -210,20 +209,20 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
   it("E.70: removeAbTest through the real action -> /go serves the bare link, history labels survive", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.mocked(isBot).mockReturnValue(false);
-    const link = seedLink({
+    const link = (await seedLink({
       url: "https://example.com/own-plain",
       abConfig: serializeAbConfig(base),
-    });
+    }));
     const { a, b } = oppositePair(link.id);
-    const tally = () =>
-      Object.fromEntries(counts(link.id).map((r) => [String(r.variant), r.c]));
+    const tally = async () =>
+      Object.fromEntries((await counts(link.id)).map((r) => [String(r.variant), r.c]));
 
     // RUNNING: split serves, both labels recorded.
     expect((await go(link.id, a)).headers.get("location")).toBe(
       "https://example.com/own-plain",
     );
     expect((await go(link.id, b)).headers.get("location")).toBe(base.urlB);
-    expect(tally()).toEqual({ A: 1, B: 1 });
+    expect(await tally()).toEqual({ A: 1, B: 1 });
 
     // REMOVE through the REAL action -> config NULL in the DB.
     const fd = new FormData();
@@ -240,7 +239,7 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
     expect((await go(link.id, b)).headers.get("location")).toBe(
       "https://example.com/own-plain",
     );
-    expect(tally()).toEqual({ A: 1, B: 1, null: 2 });
+    expect(await tally()).toEqual({ A: 1, B: 1, null: 2 });
 
     vi.unstubAllEnvs();
   });
@@ -250,21 +249,19 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
     vi.mocked(isBot).mockReturnValue(false);
 
     // Seed: ONE link row, no config, no analytics.
-    const seeded = seedLink({ url: "https://example.com/a" });
+    const seeded = (await seedLink({ url: "https://example.com/a" }));
 
     // Row-count helpers (the invariant under test).
-    const linkRows = () =>
-      db
-        .select({ c: sql<number>`count(*)` })
+    const linkRows = async () =>
+      (await db
+        .select({ c: sql<number>`count(*)`.mapWith(Number) })
         .from(links)
-        .where(eq(links.id, seeded.id))
-        .get()!.c;
-    const analyticsRows = () =>
-      db
-        .select({ c: sql<number>`count(*)` })
+        .where(eq(links.id, seeded.id)).limit(1))[0]!.c;
+    const analyticsRows = async () =>
+      (await db
+        .select({ c: sql<number>`count(*)`.mapWith(Number) })
         .from(analyticsClicks)
-        .where(eq(analyticsClicks.linkId, seeded.id))
-        .get()!.c;
+        .where(eq(analyticsClicks.linkId, seeded.id)).limit(1))[0]!.c;
     const cfg = async () =>
       parseAbConfig((await getLink(seeded.id))?.abConfig ?? null);
 
@@ -274,9 +271,9 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
       return f;
     };
 
-    expect(linkRows()).toBe(1);
+    expect((await linkRows())).toBe(1);
     expect(await cfg()).toBeNull();
-    expect(analyticsRows()).toBe(0);
+    expect((await analyticsRows())).toBe(0);
 
     // 1) CREATE.
     const created = await setAbTest(
@@ -289,7 +286,7 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
       }),
     );
     if (!created.success) throw new Error(`setAbTest: ${created.error}`);
-    expect(linkRows()).toBe(1);
+    expect((await linkRows())).toBe(1);
     expect((await cfg())?.status).toBe("running");
 
     // Clicks arrive (route-equivalent recording) — actions must NEVER
@@ -299,37 +296,37 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
     await recordClick(seeded.id, "e73-b-1", null, "click", "B");
     await recordClick(seeded.id, "e73-b-2", null, "click", "B");
     await recordClick(seeded.id, "e73-b-3", null, "click", "B");
-    expect(analyticsRows()).toBe(5);
+    expect((await analyticsRows())).toBe(5);
 
     // 2) PAUSE, 3) RESUME — each step re-asserts BOTH row counts.
     const pause = await setAbTestStatus(fd({ id: String(seeded.id), status: "paused" }));
     if (!pause.success) throw new Error(`pause: ${pause.error}`);
-    expect(linkRows()).toBe(1);
+    expect((await linkRows())).toBe(1);
     expect((await cfg())?.status).toBe("paused");
-    expect(analyticsRows()).toBe(5);
+    expect((await analyticsRows())).toBe(5);
 
     const resume = await setAbTestStatus(fd({ id: String(seeded.id), status: "running" }));
     if (!resume.success) throw new Error(`resume: ${resume.error}`);
-    expect(linkRows()).toBe(1);
+    expect((await linkRows())).toBe(1);
     expect((await cfg())?.status).toBe("running");
-    expect(analyticsRows()).toBe(5);
+    expect((await analyticsRows())).toBe(5);
 
     // 4) PROMOTE B — url pinned, config archived; still ONE row, history intact.
     const promoted = await promoteAbVariant(fd({ id: String(seeded.id), winner: "B" }));
     if (!promoted.success) throw new Error(`promote: ${promoted.error}`);
-    expect(linkRows()).toBe(1);
+    expect((await linkRows())).toBe(1);
     const promotedCfg = await cfg();
     expect(promotedCfg?.status).toBe("archived");
     expect(promotedCfg?.winner).toBe("B");
     expect((await getLink(seeded.id))?.url).toBe("https://example.com/b");
-    expect(analyticsRows()).toBe(5);
+    expect((await analyticsRows())).toBe(5);
 
     // 5) REMOVE — config gone, row and history stay.
     const removed = await removeAbTest(fd({ id: String(seeded.id) }));
     if (!removed.success) throw new Error(`remove: ${removed.error}`);
-    expect(linkRows()).toBe(1);
+    expect((await linkRows())).toBe(1);
     expect(await cfg()).toBeNull();
-    expect(analyticsRows()).toBe(5);
+    expect((await analyticsRows())).toBe(5);
 
     // 6) RE-CREATE on the same link — a full cycle must not duplicate rows.
     const recreated = await setAbTest(
@@ -342,9 +339,9 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
       }),
     );
     if (!recreated.success) throw new Error(`recreate: ${recreated.error}`);
-    expect(linkRows()).toBe(1);
+    expect((await linkRows())).toBe(1);
     expect((await cfg())?.status).toBe("running");
-    expect(analyticsRows()).toBe(5);
+    expect((await analyticsRows())).toBe(5);
 
     vi.unstubAllEnvs();
   });
@@ -352,7 +349,7 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
   it("E.76: double-submit setAbTest is byte-idempotent; double promote pins behavior", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.mocked(isBot).mockReturnValue(false);
-    const seeded = seedLink({ url: "https://example.com/a" });
+    const seeded = (await seedLink({ url: "https://example.com/a" }));
     const raw = async () => (await getLink(seeded.id))?.abConfig ?? null;
     const fd = (fields: Record<string, string>) => {
       const f = new FormData();
@@ -412,7 +409,7 @@ describe("[integration] non-running states serve link.url, unlabeled (#81 E.61)"
     // action has side effects.
     vi.stubEnv("NODE_ENV", "production");
     vi.mocked(isBot).mockReturnValue(false);
-    const seeded = seedLink({ url: "https://example.com/own-stats" });
+    const seeded = (await seedLink({ url: "https://example.com/own-stats" }));
     const checkpoint = async (label: string) => {
       const raw = await getLink(seeded.id);
       const stats = await getLinkStats(seeded.id, "7d");
@@ -478,7 +475,7 @@ describe("archived vs running coexisting rows (#81 E.128)", () => {
     // Row 1: an OLD test (starts 100d ago) manually archived EARLY while
     // its window is STILL OPEN (ends tomorrow) — status beats window:
     // pinned winner url, never config.urlB, never the split.
-    const arch = seedLink({
+    const arch = (await seedLink({
       url: "https://example.com/pinned-winner",
       abConfig: serializeAbConfig({
         ...base,
@@ -487,10 +484,10 @@ describe("archived vs running coexisting rows (#81 E.128)", () => {
         startsAt: new Date(Date.now() - 100 * 86_400_000).toISOString(),
         endsAt: new Date(Date.now() + 86_400_000).toISOString(),
       }),
-    });
+    }));
 
     // Row 2: a fresh RUNNING test on the same page.
-    const run = seedLink({ url: "https://example.com/a", abConfig: serializeAbConfig(base) });
+    const run = (await seedLink({ url: "https://example.com/a", abConfig: serializeAbConfig(base) }));
     const { a: runA, b: runB } = oppositePair(run.id);
 
     // The SAME visitor (runB's hash) hits BOTH rows back to back:
@@ -501,8 +498,8 @@ describe("archived vs running coexisting rows (#81 E.128)", () => {
     expect((await go(run.id, runA)).headers.get("location")).toBe("https://example.com/a");
 
     // Click attribution stays per-row: archived unlabeled, running labeled.
-    expect(counts(arch.id)).toEqual([{ variant: null, c: 1 }]);
-    expect(counts(run.id)).toEqual([
+    expect((await counts(arch.id))).toEqual([{ variant: null, c: 1 }]);
+    expect((await counts(run.id))).toEqual([
       { variant: "A", c: 1 },
       { variant: "B", c: 1 },
     ]);

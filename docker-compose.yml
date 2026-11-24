@@ -1,25 +1,36 @@
-# LinkBreeze — Docker Compose
-#
-# Uses the pre-built image from GitHub Container Registry.
-# This is the fastest way to deploy: docker compose up -d
-#
-# To build from source instead (for development or customization):
-#   1. Comment out the "image" line below
-#   2. Uncomment the "build" line
-#   3. Run: docker compose up -d --build
-
+# Set LINKBREEZE_POSTGRES_PASSWORD to a URL-safe random string before starting.
 services:
   linkbreeze:
-    image: docker.io/omnirise/linkbreeze:latest
-    # build: .
+    image: linkbreeze:local
+    build: .
     ports:
-      - "3000:3000"
+      - '3000:3000'
     volumes:
       - linkbreeze-data:/app/data
     environment:
-      - DATABASE_PATH=/app/data/linkbreeze.db
-      - SECRET_KEY=${SECRET_KEY:-changeme-in-production}
+      DATABASE_URL: postgresql://linkbreeze:${LINKBREEZE_POSTGRES_PASSWORD:?Set LINKBREEZE_POSTGRES_PASSWORD}@postgres:5432/linkbreeze
+      SECRET_KEY: ${SECRET_KEY:-}
+      LINKBREEZE_START_FRESH: ${LINKBREEZE_START_FRESH:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: linkbreeze
+      POSTGRES_DB: linkbreeze
+      POSTGRES_PASSWORD: ${LINKBREEZE_POSTGRES_PASSWORD:?Set LINKBREEZE_POSTGRES_PASSWORD}
+    volumes:
+      - linkbreeze-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD, pg_isready, -U, linkbreeze, -d, linkbreeze]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     restart: unless-stopped
 
 volumes:
   linkbreeze-data:
+  linkbreeze-postgres:

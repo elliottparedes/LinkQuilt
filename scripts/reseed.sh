@@ -1,23 +1,8 @@
 #!/bin/bash
-# Quick reseed: run migrations + seed-demo in one go
-set -e
+# The optional demo seeder needs an explicitly provisioned demo database.
+set -euo pipefail
 cd "$(dirname "$0")/.."
-source ~/.nvm/nvm.sh
-
-echo "→ Removing old DB..."
-rm -f data-demo/linkbreeze.db data-demo/linkbreeze.db-wal data-demo/linkbreeze.db-shm
-
-echo "→ Running migrations..."
-npx tsx -e "
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-const sqlite = new Database('data-demo/linkbreeze.db');
-const db = drizzle(sqlite);
-migrate(db, { migrationsFolder: 'src/db/migrations' });
-console.log('✓ Migrations done');
-sqlite.close();
-"
-
-echo "→ Seeding demo data..."
+: "${DEMO_DATABASE_URL:?Set DEMO_DATABASE_URL to a disposable PostgreSQL database}"
+export DATABASE_URL="$DEMO_DATABASE_URL"
+npm run db:migrate
 npx tsx scripts/seed-demo.ts

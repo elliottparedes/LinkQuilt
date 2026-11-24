@@ -56,13 +56,13 @@ const runningConfig = serializeAbConfig({
 
 describe("unified views stay unified (#81 E.16)", () => {
   it("topLinks shows an A/B link ONCE with combined clicks", async () => {
-    seedPage();
-    const plain = seedLink({ title: "Plain", url: "https://example.com/p" });
-    const tested = seedLink({
+    (await seedPage());
+    const plain = (await seedLink({ title: "Plain", url: "https://example.com/p" }));
+    const tested = (await seedLink({
       title: "Tested",
       url: "https://example.com/t",
       abConfig: runningConfig,
-    });
+    }));
 
     for (let i = 0; i < 3; i++) await recordClick(plain.id, `p-${i}`, null);
     // Labeled A + labeled B + one unlabeled — all five count toward the ONE
@@ -86,12 +86,12 @@ describe("unified views stay unified (#81 E.16)", () => {
     expect(baseline).toBeGreaterThanOrEqual(3); // sanity: hook saw queries
 
     for (let i = 0; i < 40; i++) {
-      const l = seedLink({
+      const l = (await seedLink({
         title: `Extra ${i}`,
         url: `https://example.com/extra-${i}`,
         orderIndex: 100 + i,
         abConfig: i % 2 === 0 ? runningConfig : null,
-      });
+      }));
       for (let j = 0; j < 5; j++) {
         await recordClick(l.id, `e-${i}-${j}`, null, "click", j % 2 ? "A" : "B");
       }
@@ -109,12 +109,12 @@ describe("unified views stay unified (#81 E.16)", () => {
     // Growing the A/B population must not change either count — the lists
     // select whole rows (abConfig included) and never fan out variants.
     for (let i = 0; i < 10; i++) {
-      seedLink({
+      (await seedLink({
         title: `Listed ${i}`,
         url: `https://example.com/listed-${i}`,
         orderIndex: 500 + i,
         abConfig: runningConfig,
-      });
+      }));
     }
     const activeAfter = await countQueries(() => getActiveLinks());
     const allAfter = await countQueries(() => getAllLinks());

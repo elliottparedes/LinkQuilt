@@ -30,13 +30,14 @@ import { canAccessPage } from "@/lib/ownership";
 describe("[integration] multi-user accounts", () => {
   it("createFirstUser bootstraps an ADMIN (both setup paths must agree)", async () => {
     // the harness seeds its own admin; wipe to exercise the first-user path
-    db.delete(schema.users).run();
+    (await db.delete(schema.users));
     const { createFirstUser } = await import("@/server/queries");
-    const u = createFirstUser("bootstrap", "hash");
-    expect(u).not.toBeNull();
-    expect(u!.role).toBe("admin");
-    // second call on a non-empty table returns null (TOCTOU guard intact)
-    expect(createFirstUser("second", "hash")).toBeNull();
+    const results = await Promise.all([
+      createFirstUser("bootstrap", "hash"),
+      createFirstUser("second", "hash"),
+    ]);
+    expect(results.filter(Boolean)).toEqual([expect.objectContaining({ role: "admin" })]);
+    expect(results.filter((user) => user === null)).toHaveLength(1);
   });
 
   it("creates users with explicit role and lifecycle defaults", async () => {

@@ -79,22 +79,20 @@ function exportableTheme(overrides: Record<string, unknown> = {}): any {
 describe("[integration] theme export/import with custom fonts (#82)", () => {
   let themeId: number;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     // Seed an uploaded font + a theme that uses it.
-    db.insert(schema.customFonts)
+    (await db.insert(schema.customFonts)
       .values({
-        id: 1,
         name: "Brand Sans",
         family: customFontFamily(1),
         filename: "brand-sans.woff2",
         url: "/api/uploads/seedfont.woff2",
         sizeBytes: 64,
         format: "woff2",
-      })
-      .run();
+      }));
     fsMocks.files.set(path.join("/tmp/lb-test-fonts-import", "seedfont.woff2"), woff2());
 
-    db.insert(schema.themes)
+    (await db.insert(schema.themes)
       .values({
         name: "Export Me",
         isActive: false,
@@ -106,9 +104,8 @@ describe("[integration] theme export/import with custom fonts (#82)", () => {
         backgroundValue: "#111,#222",
         linkStyle: "glass",
         animationType: "lift",
-      })
-      .run();
-    themeId = db.select().from(schema.themes).all().find((t) => t.name === "Export Me")!.id;
+      }));
+    themeId = (await db.select().from(schema.themes)).find((t) => t.name === "Export Me")!.id;
   });
 
   it("exportTheme embeds the referenced font's bytes", async () => {
@@ -128,7 +125,7 @@ describe("[integration] theme export/import with custom fonts (#82)", () => {
     expect(res).toEqual({ success: true });
 
     // New font row with a fresh id; family derived from that id.
-    const fonts = db.select().from(schema.customFonts).all();
+    const fonts = (await db.select().from(schema.customFonts));
     expect(fonts).toHaveLength(2);
     const imported = fonts.find((f) => f.id !== 1);
     expect(imported).toBeDefined();
@@ -136,7 +133,7 @@ describe("[integration] theme export/import with custom fonts (#82)", () => {
     expect(imported!.name).toBe("Brand Sans");
 
     // Theme points at the NEW id, and the file landed in the virtual dir.
-    const theme = db.select().from(schema.themes).all().find((t) => t.name === "Imported Brand");
+    const theme = (await db.select().from(schema.themes)).find((t) => t.name === "Imported Brand");
     expect(theme).toBeDefined();
     expect(theme!.fontFamily).toBe(`custom:${imported!.id}`);
     expect(imported!.url).toMatch(/\/api\/uploads\/[0-9a-f]{24}\.woff2$/);
@@ -149,7 +146,7 @@ describe("[integration] theme export/import with custom fonts (#82)", () => {
       JSON.stringify(exportableTheme({ name: "No Payload Brand" })),
     );
     expect(res).toEqual({ success: true });
-    const theme = db.select().from(schema.themes).all().find((t) => t.name === "No Payload Brand");
+    const theme = (await db.select().from(schema.themes)).find((t) => t.name === "No Payload Brand");
     expect(theme).toBeDefined();
     expect(theme!.fontFamily).toBe("inter");
   });
@@ -164,7 +161,7 @@ describe("[integration] theme export/import with custom fonts (#82)", () => {
     expect(res.success).toBe(false);
     expect(res.success === false && res.error).toMatch(/not a valid/i);
     // No theme row was created.
-    expect(db.select().from(schema.themes).all().find((t) => t.name === "Evil Brand")).toBeUndefined();
+    expect((await db.select().from(schema.themes)).find((t) => t.name === "Evil Brand")).toBeUndefined();
   });
 
   it("importTheme rejects an embedded payload over 2 MB", async () => {
@@ -178,7 +175,7 @@ describe("[integration] theme export/import with custom fonts (#82)", () => {
   });
 
   it("deleting the theme's font export flow: theme without custom font exports no payload", async () => {
-    db.insert(schema.themes)
+    (await db.insert(schema.themes)
       .values({
         name: "Plain Theme",
         isActive: false,
@@ -190,9 +187,8 @@ describe("[integration] theme export/import with custom fonts (#82)", () => {
         backgroundValue: "#000000",
         linkStyle: "glass",
         animationType: "lift",
-      })
-      .run();
-    const plainId = db.select().from(schema.themes).all().find((t) => t.name === "Plain Theme")!.id;
+      }));
+    const plainId = (await db.select().from(schema.themes)).find((t) => t.name === "Plain Theme")!.id;
     const payload = await exportTheme(plainId);
     expect(payload.customFont).toBeUndefined();
   });

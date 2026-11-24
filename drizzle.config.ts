@@ -2,9 +2,9 @@ import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
   schema: "./src/db/schema.ts",
-  out: "./src/db/migrations",
-  dialect: "sqlite",
+  out: "./src/db/postgres",
+  dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_PATH || "./data/linkbreeze.db",
+    url: process.env.DATABASE_URL ?? "",
   },
 });

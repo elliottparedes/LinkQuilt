@@ -1,9 +1,11 @@
 name: linkbreeze
 services:
   linkbreeze:
-    image: docker.io/omnirise/linkbreeze:v1.6.0
+    image: ghcr.io/elliottparedes/linkquilt:v2.0.0
     container_name: linkbreeze
     network_mode: bridge
+    environment:
+      DATABASE_URL: ""
     ports:
       - target: 3000
         published: "3000"
@@ -21,7 +23,7 @@ services:
       volumes:
         - container: /app/data
           description:
-            en_US: LinkBreeze data directory (database and uploads)
+            en_US: LinkBreeze uploads, exports, and signing key
 x-casaos:
   id: org.icewhale.linkbreeze
   architectures:
@@ -35,7 +37,7 @@ x-casaos:
     en_US: |
       LinkBreeze is a self-hosted link-in-bio platform, the open source alternative to Linktree. One public page holds all your links, with a real admin dashboard, privacy-first analytics, QR codes, and a full theme engine.
 
-      It runs as a single container backed by SQLite, so there is no external database to manage. The public page is fully server rendered with zero client JavaScript and loads fast on any connection. On first open, the setup wizard walks you through creating your admin account in under a minute.
+      Supply a PostgreSQL connection URL in the app settings. The public page is fully server rendered with zero client JavaScript and loads fast on any connection. On first open, the setup wizard walks you through creating your admin account in under a minute.
 
       Key features:
 
@@ -59,15 +61,16 @@ x-casaos:
   index: /
   port_map: "3000"
   scheme: http
-  version: v1.6.0
-  update_at: "2026-10-27"
+  version: v2.0.0
+  update_at: "2026-11-24"
   release_notes:
     en_US: |-
+      - 2.0.0: PostgreSQL required. Follow the SQLite upgrade guide before replacing an existing app.
       - 1.5.1: 11-language admin and READMEs, first-party CasaOS, Runtipi and Unraid packaging, the Settings update status card, a Linktree import fix, and a demo-guard security fix.
       - 1.5.0: custom domains for pages, automatic scheduled backups, custom /go/ redirect slugs, @ in page slugs, Poster Hero social cards, and a first listing in the CasaOS App Store.
   tips:
     before_install: |
-      LinkBreeze serves its admin panel and public pages on port 3000. For a public link page, expose the app through a reverse proxy or a domain after install. On first open you create the admin account, so no credentials are needed at install time.
+      LinkBreeze serves its admin panel and public pages on port 3000. For a public link page, expose the app through a reverse proxy or a domain after install. Set DATABASE_URL before starting. On first open you create the admin account.
   website: https://linkbreeze.omnirise.dev
   repo: https://github.com/OmniRise/LinkBreeze
   support: https://github.com/OmniRise/LinkBreeze/issues

@@ -1,4 +1,5 @@
 import "server-only";
+import { utcDaysAgo } from "@/db/sql";
 
 import { headers } from "next/headers";
 import { and, desc, eq, lt, or, sql, type SQL } from "drizzle-orm";
@@ -62,7 +63,7 @@ export async function sweepAuditRetention(): Promise<void> {
   const days = Number(await getSetting("auditRetentionDays")) || 90;
   await db
     .delete(auditLog)
-    .where(lt(auditLog.createdAt, sql`datetime('now', ${`-${days} days`})`));
+    .where(lt(auditLog.createdAt, utcDaysAgo(days)));
 }
 
 /**
@@ -139,7 +140,7 @@ export async function listAuditEntries(filters: AuditFilters = {}): Promise<{
   if (filters.actorUserId != null) conds.push(eq(auditLog.actorUserId, filters.actorUserId));
   if (filters.action) conds.push(eq(auditLog.action, filters.action));
   if (filters.sinceDays != null) {
-    conds.push(sql`${auditLog.createdAt} >= datetime('now', ${`-${filters.sinceDays} days`})`);
+    conds.push(sql`${auditLog.createdAt} >= ${utcDaysAgo(filters.sinceDays)}`);
   }
   if (filters.before) {
     // Compound cursor: same-second entries are common (bulk admin edits), so

@@ -10,7 +10,7 @@ Pick an example based on your needs:
 | Automatic TLS with a dashboard (Traefik) | `docker-compose.traefik.yml` |
 | Expose without opening ports (zero-trust) | `docker-compose.cloudflare-tunnel.yml` |
 | You already use Nginx + Certbot | `docker-compose.nginx.yml` |
-| Scheduled SQLite backups | `docker-compose.with-backup.yml` |
+| PostgreSQL backup job | `docker-compose.with-backup.yml` |
 | Running on Kubernetes cluster | `kubernetes.yaml` |
 
 **Note:** These are reference configs, not a supported matrix. Adapt them to your infrastructure and security requirements. The root `docker-compose.yml` stays simple for quick starts.
@@ -90,19 +90,14 @@ Pick an example based on your needs:
 **Ports:** 80, 443 — https-portal terminates TLS and proxies to `localhost:3000`
 
 ### `docker-compose.with-backup.yml`
-**Scenario:** Production setup with a scheduled SQLite backup sidecar. Backups run on a cron schedule and are stored in a volume or S3-compatible storage.
 
-**When to use:** You're running in production and need automated backups for disaster recovery. The backup sidecar dumps the SQLite database and uploads to your configured storage.
+Use this overlay with the root Compose file. It runs one PostgreSQL dump and one app-volume archive into the backup volume. Schedule the command from the host. For consistent database and file backups, pause app writes during the backup.
 
-**Required:**
-- A backup storage destination (local volume or S3-compatible)
+```sh
+docker compose -f docker-compose.yml -f examples/docker-compose.with-backup.yml run --rm backup
+```
 
-**Env vars:**
-- `BACKUP_SCHEDULE` — cron expression for backup frequency (e.g., `0 3 * * *` for daily at 3am)
-- `BACKUP_RETENTION_DAYS` — how many backups to keep (default: 7)
-- Optional: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_ENDPOINT`, `AWS_S3_BUCKET` for S3 backups
-
-**Ports:** Same as root compose (3000), plus any reverse proxy ports if you add one.
+See the [restore and upgrade guide](../docs/dokploy.md).
 
 ### `kubernetes.yaml`
 **Scenario:** Run LinkBreeze on Kubernetes cluster with Deployment, Service, and Ingress. Includes HPA (Horizontal Pod Autoscaler) and resource limits.
@@ -112,7 +107,7 @@ Pick an example based on your needs:
 **Required:**
 - A Kubernetes cluster
 - An Ingress controller (nginx-ingress, Traefik, etc.)
-- PVC (PersistentVolumeClaim) for database storage
+- PVC (PersistentVolumeClaim) for app files and a PostgreSQL connection URL
 
 **Env vars:** Same as root compose (passed via ConfigMap/Secret)
 
@@ -122,7 +117,7 @@ Pick an example based on your needs:
 
 All examples share these conventions:
 
-- **Data persistence:** A named volume (`linkbreeze-data`) is mounted at `/app/data`. This contains the SQLite database and uploads. Never omit the volume unless you want to lose data on container restart.
+- **Data persistence:** A named volume (`linkbreeze-data`) is mounted at `/app/data`. This contains uploads, local exports, and the signing key. The database has separate storage. Never omit the volume unless you want to lose data on container restart.
 - **Env vars:** Required vars are explicitly listed in each file's header. Missing vars fall back to sensible defaults where possible.
 - **Restart policy:** `unless-stopped` is used across all examples — the container restarts on crashes and reboots.
 - **Health checks:** Where applicable, a simple healthcheck is included (HTTP GET to `/api/health`).

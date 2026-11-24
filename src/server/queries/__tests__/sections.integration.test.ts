@@ -19,8 +19,8 @@ import {
 
 let pageId: number;
 
-beforeAll(() => {
-  const page = seedPage();
+beforeAll(async () => {
+  const page = (await seedPage());
   pageId = page.id;
 });
 
@@ -41,7 +41,7 @@ describe("[integration] sections CRUD", () => {
   });
 
   it("does not leak sections across pages", async () => {
-    const other = seedPage({ slug: "other-page", title: "Other", isDefault: false });
+    const other = (await seedPage({ slug: "other-page", title: "Other", isDefault: false }));
     const sections = await getSectionsByPage(other.id);
     expect(sections).toHaveLength(0);
   });
@@ -86,8 +86,8 @@ describe("[integration] sections CRUD", () => {
 
 describe("[integration] reorderPageContent", () => {
   let rid: number;
-  beforeAll(() => {
-    rid = seedPage({ slug: "reorder-page", title: "Reorder", isDefault: false }).id;
+  beforeAll(async () => {
+    rid = (await seedPage({ slug: "reorder-page", title: "Reorder", isDefault: false })).id;
   });
 
   it("persists link order + section assignment atomically", async () => {
@@ -123,7 +123,7 @@ describe("[integration] reorderPageContent", () => {
 
 describe("[integration] cascade on page delete", () => {
   it("sections are removed when their page is deleted via deletePage", async () => {
-    const other = seedPage({ slug: "cascade-page", title: "Cascade", isDefault: false });
+    const other = (await seedPage({ slug: "cascade-page", title: "Cascade", isDefault: false }));
     await createSection({ pageId: other.id, title: "Doomed" });
 
     await deletePage(other.id);

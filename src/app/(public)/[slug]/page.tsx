@@ -2,6 +2,7 @@ import * as React from "react";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 import { PRODUCT_NAME } from "@/lib/brand";
 import {
   getPageBySlug,
@@ -69,11 +70,13 @@ interface PageProps {
   params: Promise<PageRouteParams>;
 }
 
+const readPublicPage = React.cache(getPageBySlug);
+
 export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
   const slug = pageSlugFromParams(await params);
-  const page = await getPageBySlug(slug);
+  const page = await readPublicPage(slug);
   if (!page) return { title: "Page not found" };
 
   const title =
@@ -176,7 +179,7 @@ export default async function PublicPage({
   const [route, query] = await Promise.all([params, searchParams]);
   const slug = pageSlugFromParams(route);
   const source = parseTrafficSource(Array.isArray(query.s) ? query.s[0] : query.s);
-  const page = await getPageBySlug(slug);
+  const page = await readPublicPage(slug);
 
   if (!page) {
     notFound();
@@ -206,10 +209,14 @@ export default async function PublicPage({
       const country = getCountry(h);
       const viewRl = rateLimit(`view:${ip}`, 1, 30_000);
       if (viewRl.ok) {
-        await recordPageview(visitorHash, referrer, deviceType, country, page.id, source);
-        // #83: opportunistic scheduled-backup trigger (fire-and-forget,
-        // throttled to one settings-read per minute inside the scheduler).
-        maybeRunScheduledBackup();
+        after(async () => {
+          try {
+            await recordPageview(visitorHash, referrer, deviceType, country, page.id, source);
+            maybeRunScheduledBackup();
+          } catch {
+            // Analytics are best effort and the public page has already been sent.
+          }
+        });
       }
     }
   } catch {
@@ -217,12 +224,12 @@ export default async function PublicPage({
   }
 
   // Resolve theme: page-specific themeId → fallback to global active theme.
-  const pageTheme = page.themeId ? await getThemeById(page.themeId) : null;
-  const fallbackTheme = await getActiveTheme();
-  const theme = pageTheme ?? fallbackTheme;
-
-  const activeLinks = await getActiveLinks(page.id);
-  const sections = await getSectionsByPage(page.id);
+  const [pageTheme, activeLinks, sections] = await Promise.all([
+    page.themeId ? getThemeById(page.themeId) : null,
+    getActiveLinks(page.id),
+    getSectionsByPage(page.id),
+  ]);
+  const theme = pageTheme ?? await getActiveTheme();
 
   // Group links: uncategorized first, then each section in order. Empty
   // sections are dropped so no orphan headers render.
