@@ -92,7 +92,7 @@ export function PresetGallery({
 }: PresetGalleryProps) {
   const t = useTranslations("theme");
   return (
-    <div className="grid auto-cols-[10.5rem] grid-flow-col gap-3 overflow-x-auto px-1 py-1 sm:auto-cols-[12rem]">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,8rem),1fr))] gap-3 p-1 sm:grid-cols-[repeat(auto-fill,minmax(min(100%,12rem),1fr))]">
       {themes.map((theme) => {
         const isActive = theme.id === activeId;
         const isSelected = theme.id === selectedId;

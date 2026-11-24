@@ -4,7 +4,6 @@ import {
   getActiveTheme,
   getThemeById,
   getThemeLibrary,
-  seedThemesIfEmpty,
   getAllPages,
   getAllCustomFonts,
   getCapabilitiesForUser,
@@ -22,15 +21,16 @@ export default async function ThemePage({
 }: {
   searchParams: Promise<{ page?: string }>;
 }) {
-  // Ensure presets exist, then load.
-  await seedThemesIfEmpty();
-
   const session = await getSession();
   if (!session) redirect("/login");
-  const { caps } = await getCapabilitiesForUser(session.userId);
+  // getActiveTheme backfills missing presets before we read the library.
+  const [{ caps }, allPages, active] = await Promise.all([
+    getCapabilitiesForUser(session.userId),
+    getAllPages(),
+    getActiveTheme(),
+  ]);
 
   const { page: pageParam } = await searchParams;
-  const allPages = await getAllPages();
   const activePage = pickVisiblePage(
     allPages,
     caps,
@@ -38,9 +38,8 @@ export default async function ThemePage({
     pageParam ? Number(pageParam) : null,
   );
 
-  const [themes, active, pageTheme, fontRows] = await Promise.all([
+  const [themes, pageTheme, fontRows] = await Promise.all([
     caps.manageInstance ? getAllThemes() : getThemeLibrary(session.userId),
-    getActiveTheme(),
     activePage?.themeId ? getThemeById(activePage.themeId) : null,
     getAllCustomFonts(),
   ]);

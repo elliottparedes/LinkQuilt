@@ -10,7 +10,7 @@ import { PRESETS, PRESET_NAMES, base } from "@/lib/theme-presets";
  *   1. DB schema defaults (hardcoded here from schema.ts)
  *   2. Zod validator (customSchema) — what the save action accepts
  *   3. Token resolver (resolveThemeTokens) — what produces CSS vars
- *   4. Presets (PRESETS) — the 9 built-in themes shipped to every fresh deploy
+ *   4. Presets (PRESETS) — the built-in themes shipped to every fresh deploy
  *
  * Every past theme bug (v1.1.2 density, v1.1.3 soft-shadow, v1.1.3 fontScale)
  * was a drift between these layers. These tests would have caught all three.
@@ -137,7 +137,7 @@ describe("Dimension 1c — documented enum values are a subset of the Zod enum (
 
 describe("Dimension 2 — every preset passes Zod validation", () => {
   // The v1.1.2 density bug: a preset shipped with a value Zod rejects,
-  // making every save silently fail. This loop catches that for all 9.
+  // making every save silently fail. This loop checks every preset.
   for (const preset of PRESETS) {
     it(`preset "${preset.name}" is accepted by customSchema.safeParse`, () => {
       // Strip non-schema fields before parsing (Zod would reject unknown keys
@@ -151,8 +151,8 @@ describe("Dimension 2 — every preset passes Zod validation", () => {
 });
 
 describe("Dimension 2b — preset count and names are stable", () => {
-  it("ships exactly 11 presets", () => {
-    expect(PRESETS).toHaveLength(11);
+  it("ships exactly 20 presets", () => {
+    expect(PRESETS).toHaveLength(20);
   });
 
   it("includes the canonical preset names", () => {
@@ -168,6 +168,15 @@ describe("Dimension 2b — preset count and names are stable", () => {
       "Minimal Light",
       "8-Bit Retro",
       "Frutiger Aero",
+      "Swiss Grid",
+      "Deco Nocturne",
+      "Memphis Pop",
+      "Indigo Woodblock",
+      "Risograph",
+      "Herbarium",
+      "Orbital",
+      "Bauhaus Weave",
+      "Glazed Tile",
     ]);
   });
 
