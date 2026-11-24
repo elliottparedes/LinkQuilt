@@ -120,15 +120,8 @@ export async function generateMetadata({
   // the goal, de-listing this page is.
   const hidden = (await getSetting("searchEngineHidden")) === "true";
 
-  // Use a page-specific favicon when set, otherwise use the product icons.
-  let icons: Metadata["icons"] = {
-    icon: [
-      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
-      { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
-    ],
-    apple: "/apple-touch-icon.png",
-  };
-
+  // Override the inherited product icons only when the page has its own.
+  let icons: Metadata["icons"];
   if (page.faviconUrl) {
     const ext = page.faviconUrl.split(".").pop()?.toLowerCase();
     const typeMap: Record<string, string> = {
@@ -152,7 +145,7 @@ export async function generateMetadata({
     description,
     alternates: { canonical: canonicalUrl },
     ...(hidden ? { robots: { index: false, follow: true } } : {}),
-    icons,
+    ...(icons ? { icons } : {}),
     openGraph: {
       title,
       description,

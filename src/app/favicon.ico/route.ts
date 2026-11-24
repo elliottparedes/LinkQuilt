@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
+import { PRODUCT_FAVICON_URL } from "@/lib/brand";
 import { getSetting } from "@/server/queries";
 
 /**
@@ -17,7 +18,7 @@ import { getSetting } from "@/server/queries";
  * hostname the user accessed the instance from.
  */
 export async function GET() {
-  let faviconUrl = "/favicon-32.png";
+  let faviconUrl = PRODUCT_FAVICON_URL;
   try {
     const custom = await getSetting("faviconUrl");
     if (custom) faviconUrl = custom;

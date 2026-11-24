@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { PRODUCT_NAME } from "@/lib/brand";
+import { PRODUCT_FAVICON_URL, PRODUCT_NAME } from "@/lib/brand";
 import "./globals.css";
 
 // This layout serves both the app shell and public themes. Let CSS request
@@ -513,10 +513,10 @@ export async function generateMetadata(): Promise<Metadata> {
   // Per-page favicons are set in the public route's generateMetadata().
   const icons: Metadata["icons"] = {
     icon: [
-      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
-      { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
+      { url: PRODUCT_FAVICON_URL, sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16.png?v=quilt", sizes: "16x16", type: "image/png" },
     ],
-    apple: "/apple-touch-icon.png",
+    apple: "/apple-touch-icon.png?v=quilt",
   };
 
   const title = `${PRODUCT_NAME} — Link in bio`;
