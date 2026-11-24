@@ -3,6 +3,8 @@ import localFont from "next/font/local";
 import { PRODUCT_NAME } from "@/lib/brand";
 import "./globals.css";
 
+// This layout serves both the app shell and public themes. Let CSS request
+// the font files and weights each page actually uses.
 const clashDisplay = localFont({
   src: [
     { path: "./fonts/ClashDisplay-500.woff2", weight: "500", style: "normal" },
@@ -11,6 +13,7 @@ const clashDisplay = localFont({
   ],
   variable: "--font-clash",
   display: "swap",
+  preload: false,
 });
 
 const satoshi = localFont({
@@ -21,6 +24,7 @@ const satoshi = localFont({
   ],
   variable: "--font-satoshi",
   display: "swap",
+  preload: false,
 });
 
 // ─── Theme fonts (public page) ───────────────────────────────────────────────
@@ -35,7 +39,7 @@ const satoshi = localFont({
 // even though the active theme only uses ONE. With preload off, the
 // @font-face rules still exist in the CSS (so the admin theme picker
 // works), but the browser only downloads a font when an element actually
-// renders with that font-family. Geist Mono (admin UI) stays preloaded.
+// renders with that font-family.
 
 const geistMono = localFont({
   src: [
@@ -47,6 +51,7 @@ const geistMono = localFont({
   ],
   variable: "--font-geist-mono",
   display: "swap",
+  preload: false,
 });
 
 const inter = localFont({

@@ -3,33 +3,16 @@ import createNextIntlPlugin from "next-intl/plugin";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
-/**
- * Security headers. X-Frame-Options is omitted entirely when DEMO_MODE is
- * active — in that mode CSP frame-ancestors is the sole frame-embedding gate
- * (see buildCsp below), and sending both X-Frame-Options and a permissive
- * frame-ancestors simultaneously is contradictory per the spec. In normal
- * mode, SAMEORIGIN prevents clickjacking on non-demo deployments.
- */
-const securityHeaders = process.env.DEMO_MODE === "true"
-  ? [
-      { key: "X-Content-Type-Options", value: "nosniff" },
-      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-      { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-      {
-        key: "Strict-Transport-Security",
-        value: "max-age=63072000; includeSubDomains; preload",
-      },
-    ]
-  : [
-      { key: "X-Frame-Options", value: "SAMEORIGIN" },
-      { key: "X-Content-Type-Options", value: "nosniff" },
-      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-      { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-      {
-        key: "Strict-Transport-Security",
-        value: "max-age=63072000; includeSubDomains; preload",
-      },
-    ];
+// Pages use CSP frame-ancestors for framing restrictions.
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
+];
 
 /**
  * Build the Content-Security-Policy header value.
@@ -180,6 +163,7 @@ const nextConfig: NextConfig = {
         // never as documents. A strict CSP (no scripts, no frames, no
         // origins) means even a malicious SVG executes nothing if opened
         // directly — defense in depth behind the upload sanitizer.
+        // Upload responses retain X-Frame-Options for framing protection.
         // NOTE: this rule MUST come AFTER /:slug* — when several header
         // rules match, the last one wins, so this overrides the broad
         // page CSP for upload files.
@@ -190,6 +174,9 @@ const nextConfig: NextConfig = {
             value: "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; media-src 'self'; font-src 'self'",
           },
           { key: "X-Content-Type-Options", value: "nosniff" },
+          ...(process.env.DEMO_MODE === "true"
+            ? []
+            : [{ key: "X-Frame-Options", value: "SAMEORIGIN" }]),
         ],
       },
       {

@@ -40,7 +40,7 @@ LinkBreeze implements the following security practices:
 - **Input validation**: Zod schemas on every server action and API route
 - **SQL injection prevention**: Drizzle ORM parameterized queries (no raw SQL)
 - **Security headers**: HSTS, X-Content-Type-Options, Referrer-Policy, Permissions-Policy on all routes
-- **X-Frame-Options**: SAMEORIGIN (prevents external clickjacking)
+- **Framing protection**: Normal deployments use CSP `frame-ancestors 'self'` on pages and `X-Frame-Options: SAMEORIGIN` on uploads. Demo mode can allow a configured origin to embed pages.
 - **URL validation**: Rejects `javascript:`, `data:`, `blob:` schemes
 - **File uploads**: Type whitelist (images only), size limit (2 MB), path-traversal-safe filename resolution
 - **Docker**: Runs as non-root user (`node`), data volume is the only writable path
