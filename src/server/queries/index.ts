@@ -1151,9 +1151,9 @@ export async function moveUsersToRole(fromRoleId: number, toRoleId: number): Pro
  */
 export async function getCapabilitiesForUser(
   userId: number,
-): Promise<{ roleText: string | null; caps: RoleCapabilities }> {
+): Promise<{ roleText: string | null; pageNamespace: string | null; caps: RoleCapabilities }> {
   const rows = await db
-    .select({ roleText: users.role, roleRow: roles })
+    .select({ roleText: users.role, pageNamespace: users.pageNamespace, roleRow: roles })
     .from(users)
     .leftJoin(roles, eq(users.roleId, roles.id))
     .where(eq(users.id, userId))
@@ -1161,6 +1161,7 @@ export async function getCapabilitiesForUser(
   const row = rows[0];
   return {
     roleText: row?.roleText ?? null,
+    pageNamespace: row?.pageNamespace ?? null,
     caps: resolveCapabilities(row?.roleText ?? null, row?.roleRow ?? null),
   };
 }

@@ -84,7 +84,7 @@ export const ADMIN_CAPABILITIES: RoleCapabilities = {
 };
 
 export const MEMBER_CAPABILITIES: RoleCapabilities = {
-  pagesLimit: 1,
+  pagesLimit: 5,
   visibility: "own",
   manageAccounts: false,
   manageInstance: false,

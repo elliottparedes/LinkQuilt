@@ -63,12 +63,16 @@ function setRailStored(next: boolean) {
  *  (read post-hydration so SSR stays deterministic). */
 export function AdminSidebar({
   username,
+  publicPageHref,
+  brandLabel,
   pages,
   canManageAccounts,
   canManageInstance,
   showPages,
 }: {
   username: string;
+  publicPageHref: string | null;
+  brandLabel: string;
   pages: SidebarPage[];
   canManageAccounts: boolean;
   canManageInstance: boolean;
@@ -100,12 +104,12 @@ export function AdminSidebar({
         )}
       >
         <Link
-          href="/"
+          href={publicPageHref ?? "/dashboard"}
           prefetch={false}
-          target="_blank"
+          target={publicPageHref ? "_blank" : undefined}
           rel="noopener noreferrer"
-          title={t("visitSite")}
-          aria-label={t("visitSite")}
+          title={brandLabel}
+          aria-label={brandLabel}
           className="flex items-center gap-2 rounded-md transition-opacity hover:opacity-80"
         >
           <Image src="/logo-mark.svg" alt="" width={24} height={24} unoptimized />

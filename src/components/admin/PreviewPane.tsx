@@ -84,11 +84,7 @@ function ActivePageResolver({
 
   const bust = manualReload?.t ?? 0;
   const reloadKey = `${activePage?.id ?? 0}-${manualReload?.k ?? 0}`;
-  const previewUrl = activePage
-    ? bust > 0
-      ? `/${activePage.slug}?v=${bust}`
-      : `/${activePage.slug}`
-    : null;
+  const previewUrl = activePage ? `/${activePage.slug}` : null;
 
   const contextValue = React.useMemo(
     () => ({ reload, open, setOpen, previewUrl }),
@@ -112,7 +108,8 @@ function ActivePageResolver({
       </div>
       {previewUrl && open && (
         <PreviewOverlay
-          src={previewUrl}
+          href={previewUrl}
+          src={bust > 0 ? `${previewUrl}?v=${bust}` : previewUrl}
           reloadKey={reloadKey}
           reload={reload}
           onClose={() => setOpen(false)}
@@ -179,12 +176,14 @@ export function PreviewButton({
 // ── Overlay Panel ───────────────────────────────────────────────────────
 
 function PreviewOverlay({
+  href,
   src,
   reloadKey,
   reload,
   onClose,
   scrollRef,
 }: {
+  href: string;
   src: string;
   reloadKey: string;
   reload: () => void;
@@ -195,7 +194,7 @@ function PreviewOverlay({
     <>
       {/* Desktop: floating panel anchored to right edge, full viewport height */}
       <div className="fixed right-0 top-0 z-30 hidden h-dvh w-[360px] flex-col border-l border-border bg-sidebar/80 backdrop-blur-xl lg:flex xl:w-[400px]">
-        <PreviewHeader src={src} reload={reload} onClose={onClose} />
+        <PreviewHeader href={href} reload={reload} onClose={onClose} />
         <div className="flex-1 overflow-hidden">
           <PhoneFrame key={reloadKey} src={src} scrollRef={scrollRef} />
         </div>
@@ -203,7 +202,7 @@ function PreviewOverlay({
 
       {/* Mobile: full-screen overlay */}
       <div className="fixed inset-0 z-50 flex flex-col bg-background lg:hidden">
-        <PreviewHeader src={src} reload={reload} onClose={onClose} />
+        <PreviewHeader href={href} reload={reload} onClose={onClose} />
         <div className="flex-1 overflow-hidden">
           <PhoneFrame key={reloadKey} src={src} scrollRef={scrollRef} />
         </div>
@@ -215,11 +214,11 @@ function PreviewOverlay({
 // ── Header ──────────────────────────────────────────────────────────────
 
 function PreviewHeader({
-  src,
+  href,
   reload,
   onClose,
 }: {
-  src: string;
+  href: string;
   reload: () => void;
   onClose: () => void;
 }) {
@@ -239,7 +238,7 @@ function PreviewHeader({
           <RefreshCw className="size-4" />
         </button>
         <a
-          href={src}
+          href={href}
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

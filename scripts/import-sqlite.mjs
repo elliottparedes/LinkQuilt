@@ -155,6 +155,11 @@ async function importSnapshot(sqlite, client) {
     }
     const manifest = {};
     for (const table of tables) manifest[table] = await copyTable(sqlite, client, table);
+    // This data migration runs before the SQLite rows are copied.
+    await client.query(`
+      UPDATE roles SET pages_limit = 5
+      WHERE is_builtin AND name = 'Member' AND pages_limit = 1
+    `);
     await client.query("INSERT INTO _meta (key, value) VALUES ($1, $2)", [importKey, JSON.stringify(manifest)]);
     await client.query("COMMIT");
     console.log(JSON.stringify(manifest, null, 2));

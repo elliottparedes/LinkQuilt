@@ -5,12 +5,11 @@ import { NextIntlClientProvider } from "next-intl";
 import { getSession } from "@/lib/auth";
 import { PRODUCT_NAME } from "@/lib/brand";
 import { isDemoMode } from "@/lib/demo";
-import { getAllPages } from "@/server/queries";
+import { getAllPages, getCapabilitiesForUser } from "@/server/queries";
 import { AuroraBackground } from "@/components/aurora/AuroraBackground";
 import { MobileTabBar } from "@/components/admin/MobileTabBar";
 import { MobileHeaderActions } from "@/components/admin/MobileHeaderActions";
 import { PageSwitcher } from "@/components/admin/PageSwitcher";
-import { getCapabilitiesForUser } from "@/server/queries";
 import { filterVisiblePages, showPageSwitcher } from "@/lib/ownership";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { PreviewProvider } from "@/components/admin/PreviewPane";
@@ -62,9 +61,21 @@ export default async function AdminLayout({
   // Load pages for the page switcher (only when authed). #124: the switcher
   // and dashboard are scoped to the pages the user's role may SEE — a plain
   // member never sees (or can pick) anyone else's page here.
-  const capsForUser = await getCapabilitiesForUser(session.userId);
-  const allPages = await getAllPages();
+  const [capsForUser, allPages] = await Promise.all([
+    getCapabilitiesForUser(session.userId),
+    getAllPages(),
+  ]);
   const visiblePages = filterVisiblePages(allPages, capsForUser.caps, session.userId);
+  const homeSlug = capsForUser.pageNamespace ?? session.username.toLowerCase();
+  const homePage = visiblePages.find((page) =>
+    page.isPublished && page.slug.toLowerCase() === homeSlug &&
+    (page.userId === session.userId ||
+      (page.userId === null && page.isDefault && capsForUser.roleText === "admin")),
+  ) ?? visiblePages.find((page) =>
+    page.isPublished && page.userId === session.userId && !page.slug.includes("/"),
+  );
+  const publicPageHref = homePage ? `/${homePage.slug}` : isDemoMode ? "/" : null;
+  const brandLabel = publicPageHref ? t("visitSite") : (await getTranslations("nav"))("dashboard");
   const showPages = showPageSwitcher(capsForUser.caps);
   const pageList = visiblePages.map((p) => ({
     id: p.id,
@@ -92,6 +103,8 @@ export default async function AdminLayout({
           <React.Suspense fallback={null}>
             <AdminSidebar
               username={session.username}
+              publicPageHref={publicPageHref}
+              brandLabel={brandLabel}
               pages={pageList}
               canManageAccounts={capsForUser.caps.manageAccounts}
               canManageInstance={capsForUser.caps.manageInstance}
@@ -105,12 +118,12 @@ export default async function AdminLayout({
             <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 md:hidden">
               <div className="flex items-center gap-2">
                 <Link
-                  href="/"
+                  href={publicPageHref ?? "/dashboard"}
                   prefetch={false}
-                  target="_blank"
+                  target={publicPageHref ? "_blank" : undefined}
                   rel="noopener noreferrer"
-                  title={t("visitSite")}
-                  aria-label={t("visitSite")}
+                  title={brandLabel}
+                  aria-label={brandLabel}
                   className="flex items-center gap-2 rounded-md transition-opacity hover:opacity-80"
                 >
                   <Image src="/logo-mark.svg" alt="" width={24} height={24} unoptimized />

@@ -92,7 +92,7 @@ describe("resolveCapabilities", () => {
     expect(resolveCapabilities("admin", null).manageAccounts).toBe(true);
     expect(resolveCapabilities("admin", null).visibility).toBe("manage_all");
     expect(resolveCapabilities("owner", null)).toEqual({
-      pagesLimit: 1,
+      pagesLimit: 5,
       visibility: "own",
       manageAccounts: false,
       manageInstance: false,
@@ -139,11 +139,12 @@ describe("filterVisiblePages (admin page switcher / dashboard scoping)", () => {
 
 describe("showPageSwitcher", () => {
   it("hides the section for a one-page member", () => {
-    expect(showPageSwitcher(MEMBER_CAPABILITIES)).toBe(false);
+    expect(showPageSwitcher({ ...MEMBER_CAPABILITIES, pagesLimit: 1 })).toBe(false);
   });
 
   it("shows it for admins and for roles that may own more than one page", () => {
     expect(showPageSwitcher(ADMIN_CAPABILITIES)).toBe(true);
+    expect(showPageSwitcher(MEMBER_CAPABILITIES)).toBe(true);
     expect(showPageSwitcher({ ...MEMBER_CAPABILITIES, pagesLimit: 3 })).toBe(true);
     expect(showPageSwitcher({ ...MEMBER_CAPABILITIES, pagesLimit: null })).toBe(true);
     expect(showPageSwitcher({ ...MEMBER_CAPABILITIES, visibility: "view_all" })).toBe(true);
