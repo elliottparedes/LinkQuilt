@@ -2,7 +2,7 @@
  * Client-safe QR style types + pure helpers. No server-only imports here —
  * both the settings UI and the server generator use this module.
  */
-import { z } from "zod";
+import { z } from "./zod";
 
 /** Default QR look — matches the pre-1.3 hard-coded style. */
 export const DEFAULT_QR_DARK = "#0f0f1a";

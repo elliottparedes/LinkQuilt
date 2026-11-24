@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./zod";
 import type { LinkRow, PageRow } from "@/server/queries";
 import { buildVCard, pageToVCardInput, type VCardInput } from "@/lib/wallet/vcard";
 
