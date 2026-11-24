@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { getAllPages, getOidcIdentitiesForUser, getCapabilitiesForUser, type SocialLink } from "@/server/queries";
+import { getOidcIdentitiesForUser, getCapabilitiesForUser, type SocialLink } from "@/server/queries";
 import { getSession } from "@/lib/auth";
-import { pickVisiblePage } from "@/lib/ownership";
+import { getAdminPage } from "@/server/queries/admin-pages";
 import { oidcAccountLinkingSupported } from "@/server/actions/oidc";
 import { ProfileForm } from "./profile-form";
 import { SsoIdentitiesCard } from "./sso-identities-card";
@@ -17,13 +17,7 @@ export default async function ProfilePage({
   const session = await getSession();
   if (!session) redirect("/login");
   const { caps } = await getCapabilitiesForUser(session.userId);
-  const allPages = await getAllPages();
-  const activePage = pickVisiblePage(
-    allPages,
-    caps,
-    session.userId,
-    pageParam ? Number(pageParam) : null,
-  );
+  const activePage = await getAdminPage(caps, session.userId, pageParam);
 
   let socialLinks: SocialLink[] = [];
   try {

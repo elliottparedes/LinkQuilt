@@ -34,6 +34,7 @@ import {
   desc,
   isNull,
   isNotNull,
+  inArray,
   sql,
 } from "drizzle-orm";
 
@@ -728,6 +729,13 @@ export async function getThemeLibrary(userId: number): Promise<ThemeRow[]> {
 export async function getThemeById(id: number): Promise<ThemeRow | null> {
   const rows = await db.select().from(themes).where(eq(themes.id, id)).limit(1);
   return rows[0] ?? null;
+}
+
+export async function getThemeIdsUsedByOtherPages(themeIds: number[], pageId?: number) {
+  if (!themeIds.length) return new Set<number | null>();
+  const used = await db.selectDistinct({ id: pages.themeId }).from(pages)
+    .where(and(inArray(pages.themeId, themeIds), pageId === undefined ? undefined : ne(pages.id, pageId)));
+  return new Set(used.map(({ id }) => id));
 }
 
 /** Pages rendering the given theme: pages with themeId set, plus every page when the theme is globally active. */

@@ -4,12 +4,13 @@ import {
   getActiveTheme,
   getThemeById,
   getThemeLibrary,
-  getAllPages,
+  getThemeIdsUsedByOtherPages,
   getAllCustomFonts,
   getCapabilitiesForUser,
 } from "@/server/queries";
 import { getSession } from "@/lib/auth";
-import { canEditPage, pickVisiblePage } from "@/lib/ownership";
+import { canEditPage } from "@/lib/ownership";
+import { getAdminPage } from "@/server/queries/admin-pages";
 import type { CustomFontMeta } from "@/lib/custom-fonts";
 import { canEditThemeInPlace } from "@/lib/theme-editing";
 import { ThemeManager } from "./theme-manager";
@@ -24,19 +25,13 @@ export default async function ThemePage({
   const session = await getSession();
   if (!session) redirect("/login");
   // getActiveTheme backfills missing presets before we read the library.
-  const [{ caps }, allPages, active] = await Promise.all([
+  const [{ caps }, active] = await Promise.all([
     getCapabilitiesForUser(session.userId),
-    getAllPages(),
     getActiveTheme(),
   ]);
 
   const { page: pageParam } = await searchParams;
-  const activePage = pickVisiblePage(
-    allPages,
-    caps,
-    session.userId,
-    pageParam ? Number(pageParam) : null,
-  );
+  const activePage = await getAdminPage(caps, session.userId, pageParam);
 
   const [themes, pageTheme, fontRows] = await Promise.all([
     caps.manageInstance ? getAllThemes() : getThemeLibrary(session.userId),
@@ -56,17 +51,16 @@ export default async function ThemePage({
   }));
 
   const effective = pageTheme ?? active;
-  const otherThemeIds = new Set(allPages
-    .filter((page) => page.id !== activePage?.id)
-    .map((page) => page.themeId));
-  const editableThemeIds = (effective ? [...themes, effective] : themes)
+  const candidateThemeIds = (effective ? [...themes, effective] : themes)
     .filter((theme) => canEditThemeInPlace(theme, {
       ownerId: activePage?.userId ?? session.userId,
       pageId: activePage?.id,
       manageInstance: caps.manageInstance,
-      usedByOtherPage: otherThemeIds.has(theme.id),
+      usedByOtherPage: false,
     }))
     .map((theme) => theme.id);
+  const otherThemeIds = await getThemeIdsUsedByOtherPages(candidateThemeIds, activePage?.id);
+  const editableThemeIds = candidateThemeIds.filter((id) => !otherThemeIds.has(id));
 
   return (
     <div className="flex flex-col gap-8">

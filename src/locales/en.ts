@@ -1107,6 +1107,11 @@ const en = {
   },
 
   pageSwitcher: {
+    browsePages: "Browse pages",
+    searchPages: "Search by title, path, or username",
+    search: "Search",
+    noPagesFound: "No pages found",
+    unpublished: "Unpublished",
     newPage: "New page",
     deletePage: "Delete page {name}",
     viewPage: "View public page /{slug}",

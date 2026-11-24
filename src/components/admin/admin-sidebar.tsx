@@ -12,14 +12,7 @@ import { AdminNav } from "@/components/admin/AdminNav";
 import { PageSwitcher } from "@/components/admin/PageSwitcher";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
-
-export type SidebarPage = {
-  id: number;
-  slug: string;
-  title: string;
-  isDefault: boolean;
-  isPublished: boolean;
-};
+import type { PageSwitcherPage } from "@/server/queries/admin-pages";
 
 // ── rail (collapsed sidebar) store ──────────────────────────────────────
 // Persisted in localStorage, read through useSyncExternalStore so SSR and
@@ -73,7 +66,7 @@ export function AdminSidebar({
   username: string;
   publicPageHref: string | null;
   brandLabel: string;
-  pages: SidebarPage[];
+  pages: PageSwitcherPage[];
   canManageAccounts: boolean;
   canManageInstance: boolean;
   showPages: boolean;

@@ -2,7 +2,6 @@ import { QrCode } from "lucide-react";
 import { createHash } from "node:crypto";
 import { AB_AUTO_PROMOTE_SETTING } from "@/lib/ab-test";
 import {
-  getAllPages,
   getAllThemes,
   getActiveTheme,
   getAnalyticsRetentionDays,
@@ -18,7 +17,7 @@ import { formatTimeOfDay } from "@/lib/backup-schedule";
 import { parseQrStyle } from "@/lib/qr-style";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
-import { pickVisiblePage } from "@/lib/ownership";
+import { getAdminPage } from "@/server/queries/admin-pages";
 import { getUserById } from "@/server/queries";
 import { getApiKeyRecord } from "@/server/api-keys";
 import { getApiUsage } from "@/lib/api-usage";
@@ -62,13 +61,7 @@ export default async function SettingsPage({
 
   const { caps } = await getCapabilitiesForUser(session.userId);
   const canManageInstance = caps.manageInstance;
-  const allPages = await getAllPages();
-  const activePage = pickVisiblePage(
-    allPages,
-    caps,
-    session.userId,
-    pageParam ? Number(pageParam) : null,
-  );
+  const activePage = await getAdminPage(caps, session.userId, pageParam);
 
   const [themes, active, retentionDays, consentText, subscribers, searchEngineHidden, abAutoPromote] = await Promise.all([
     getAllThemes(),

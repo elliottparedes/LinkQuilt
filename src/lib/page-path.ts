@@ -4,6 +4,11 @@ export type PageRouteParams = { slug: string; pageSlug?: string };
 
 const PAGE_RESOURCES = ["privacy", "opengraph-image"];
 
+export function parseAdminPageId(value: string | null | undefined): number | null {
+  const id = typeof value === "string" ? Number(value) : 0;
+  return Number.isInteger(id) && id > 0 && id <= 2_147_483_647 ? id : null;
+}
+
 export function isReservedSubpageSlug(slug: string): boolean {
   return PAGE_RESOURCES.includes(slug);
 }

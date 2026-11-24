@@ -1,14 +1,13 @@
 import { redirect } from "next/navigation";
 import {
   getAllLinks,
-  getAllPages,
   getSectionsByPage,
   getThemeById,
   getActiveTheme,
   getCapabilitiesForUser,
 } from "@/server/queries";
 import { getSession } from "@/lib/auth";
-import { pickVisiblePage } from "@/lib/ownership";
+import { getAdminPage } from "@/server/queries/admin-pages";
 import { LinksManager } from "./links-manager";
 
 export const dynamic = "force-dynamic";
@@ -22,13 +21,7 @@ export default async function LinksPage({
   const session = await getSession();
   if (!session) redirect("/login");
   const { caps } = await getCapabilitiesForUser(session.userId);
-  const allPages = await getAllPages();
-  const activePage = pickVisiblePage(
-    allPages,
-    caps,
-    session.userId,
-    pageParam ? Number(pageParam) : null,
-  );
+  const activePage = await getAdminPage(caps, session.userId, pageParam);
   if (!activePage) redirect("/dashboard");
 
   // The add/edit link sheet renders a live card preview with the page's REAL

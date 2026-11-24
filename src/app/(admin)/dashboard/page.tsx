@@ -22,7 +22,6 @@ import {
   getDashboardStats,
   getPreviousStats,
   getAllLinks,
-  getAllPages,
   getAnalyticsBreakdown,
   getAnalyticsRetentionDays,
   getActiveTheme,
@@ -33,7 +32,7 @@ import {
 } from "@/server/queries";
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { pickVisiblePage } from "@/lib/ownership";
+import { getAdminPage } from "@/server/queries/admin-pages";
 import { maybeRunScheduledBackup, getBackupStatus } from "@/server/backup-scheduler";
 import { BackupFailureNotice } from "./backup-failure-notice";
 import { getCachedFaviconUrl } from "@/lib/favicon";
@@ -342,14 +341,9 @@ export default async function DashboardPage({
   // a plain member can't ?page= their way into someone else's stats.
   const { caps } = await getCapabilitiesForUser(session.userId);
   const canManageInstance = caps.manageInstance;
-  const allPages = await getAllPages();
-  const activePage = pickVisiblePage(
-    allPages,
-    caps,
-    session.userId,
-    pageParam ? Number(pageParam) : null,
-  );
-  const pageId = activePage?.id;
+  const activePage = await getAdminPage(caps, session.userId, pageParam);
+  if (!activePage) redirect("/pages");
+  const pageId = activePage.id;
 
   const [stats, prevStats, links, breakdown, activeTheme, retentionDays, linkRates, heatmap, activity, socialTaps] = await Promise.all([
     getDashboardStats(range, pageId),

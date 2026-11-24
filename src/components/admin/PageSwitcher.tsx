@@ -4,14 +4,15 @@ import * as React from "react";
 import { useTranslations } from "next-intl";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, Plus, FileText, Star, Globe, Trash2 } from "lucide-react";
-import type { PageRow } from "@/server/queries";
+import { ChevronDown, Plus, FileText, Search, Star, Globe, Trash2 } from "lucide-react";
+import type { PageSwitcherPage } from "@/server/queries/admin-pages";
 import { updatePageAction } from "@/server/actions/pages";
 import { DeletePageDialog } from "@/components/admin/delete-page-dialog";
+import { usePreview } from "@/components/admin/PreviewPane";
 import { SuccessToast } from "@/components/ui/success-toast";
 
 interface PageSwitcherProps {
-  pages: Pick<PageRow, "id" | "slug" | "title" | "isDefault" | "isPublished">[];
+  pages: PageSwitcherPage[];
   variant?: "full" | "compact";
 }
 
@@ -25,7 +26,7 @@ export function PageSwitcher({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const currentPageId = searchParams.get("page");
+  const { activePage } = usePreview();
   const [open, setOpen] = React.useState(false);
   const [pageToDelete, setPageToDelete] = React.useState<PageSwitcherProps["pages"][number] | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
@@ -33,14 +34,9 @@ export function PageSwitcher({
   const [settingDefaultId, startDefaultTransition] = React.useTransition();
   const dropdownRef = React.useRef<HTMLDivElement>(null);
 
-  // Resolve the active page: explicit ?page= param → default page → first.
-  const activePage = React.useMemo(() => {
-    if (currentPageId) {
-      const found = pages.find((p) => p.id === Number(currentPageId));
-      if (found) return found;
-    }
-    return pages.find((p) => p.isDefault) ?? pages[0];
-  }, [currentPageId, pages]);
+  const shortcuts = activePage && !pages.some((page) => page.id === activePage.id)
+    ? [...pages, activePage]
+    : pages;
 
   // Close dropdown on outside click.
   React.useEffect(() => {
@@ -54,6 +50,11 @@ export function PageSwitcher({
   }, []);
 
   function navigateToPage(pageId: number) {
+    if (pathname === "/pages" || pathname === "/pages/new") {
+      router.push(`/dashboard?page=${pageId}`);
+      setOpen(false);
+      return;
+    }
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(pageId));
     router.push(`${pathname}?${params.toString()}`);
@@ -78,8 +79,6 @@ export function PageSwitcher({
     });
   }
 
-  if (!activePage) return null;
-
   const isCompact = variant === "compact";
 
   return (
@@ -87,6 +86,7 @@ export function PageSwitcher({
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
         className={
           isCompact
             ? "flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm transition-colors hover:bg-muted/50"
@@ -94,13 +94,13 @@ export function PageSwitcher({
         }
       >
         <span className="flex items-center gap-2 truncate">
-          {activePage.isDefault ? (
+          {activePage?.isDefault ? (
             <Star className="size-3.5 shrink-0 text-warning" fill="currentColor" />
           ) : (
             <FileText className="size-3.5 shrink-0 text-muted-foreground" />
           )}
           <span className="max-w-[100px] truncate font-medium">
-            {activePage.title || activePage.slug}
+            {activePage ? activePage.title || activePage.slug : t("browsePages")}
           </span>
         </span>
         <ChevronDown
@@ -112,15 +112,15 @@ export function PageSwitcher({
         <div
           className={
             isCompact
-              ? "absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-border bg-popover p-1 shadow-lg"
-              : "absolute bottom-full left-0 right-0 z-50 mb-1 rounded-lg border border-border bg-popover p-1 shadow-lg"
+              ? "absolute right-0 top-full z-50 mt-1 max-h-[60dvh] w-56 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
+              : "absolute bottom-full left-0 right-0 z-50 mb-1 max-h-[60dvh] overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
           }
         >
-          {pages.map((page) => (
+          {shortcuts.map((page) => (
             <div
               key={page.id}
               className={`flex w-full items-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted/50 ${
-                page.id === activePage.id ? "bg-muted/30" : ""
+                page.id === activePage?.id ? "bg-muted/30" : ""
               }`}
             >
               <button
@@ -140,7 +140,7 @@ export function PageSwitcher({
                   <Globe className="size-3 shrink-0 text-muted-foreground opacity-50" />
                 )}
               </button>
-              {!page.isDefault && (
+              {page.canEdit && !page.isDefault && (
                 <>
                   {canManageInstance ? (
                     <button
@@ -174,7 +174,7 @@ export function PageSwitcher({
                 href={`/${page.slug}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-lavender"
+                className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground transition-colors hover:text-lavender"
                 aria-label={t("viewPage", { slug: page.slug })}
               >
                 /{page.slug}
@@ -188,7 +188,17 @@ export function PageSwitcher({
           ) : null}
           <div className="mt-1 border-t border-border pt-1">
             <Link
+              href="/pages"
+              prefetch={false}
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            >
+              <Search className="size-3.5" />
+              {t("browsePages")}
+            </Link>
+            <Link
               href="/pages/new"
+              onClick={() => setOpen(false)}
               className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             >
               <Plus className="size-3.5" />

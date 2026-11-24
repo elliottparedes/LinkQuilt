@@ -1,7 +1,7 @@
 /**
  * Italiano — locale admin UI.
  *
- * lastSyncedHash: cc36ad0678a8 ← rigenerato da `npm run i18n:check -- --update`
+ * lastSyncedHash: fff820587252 ← rigenerato da `npm run i18n:check -- --update`
  * (mismatch = source inglese modificato, risincronizzare questo file)
  */
 import type { Messages } from "./en";
@@ -1099,6 +1099,11 @@ const it: Messages = {
   },
 
   pageSwitcher: {
+    browsePages: "Sfoglia le pagine",
+    searchPages: "Cerca per titolo, percorso o nome utente",
+    search: "Cerca",
+    noPagesFound: "Nessuna pagina trovata",
+    unpublished: "Non pubblicata",
     newPage: "Nuova pagina",
     deletePage: "Elimina pagina {name}",
     viewPage: "Vedi pagina pubblica /{slug}",

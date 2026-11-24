@@ -5,12 +5,13 @@ import { NextIntlClientProvider } from "next-intl";
 import { getSession } from "@/lib/auth";
 import { PRODUCT_NAME } from "@/lib/brand";
 import { isDemoMode } from "@/lib/demo";
-import { getAllPages, getCapabilitiesForUser } from "@/server/queries";
+import { getCapabilitiesForUser } from "@/server/queries";
+import { getAdminHomeSlug, getPageSwitcherPages } from "@/server/queries/admin-pages";
 import { AuroraBackground } from "@/components/aurora/AuroraBackground";
 import { MobileTabBar } from "@/components/admin/MobileTabBar";
 import { MobileHeaderActions } from "@/components/admin/MobileHeaderActions";
 import { PageSwitcher } from "@/components/admin/PageSwitcher";
-import { filterVisiblePages, showPageSwitcher } from "@/lib/ownership";
+import { showPageSwitcher } from "@/lib/ownership";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { PreviewProvider } from "@/components/admin/PreviewPane";
 import { getLocale } from "@/i18n/server";
@@ -61,29 +62,19 @@ export default async function AdminLayout({
   // Load pages for the page switcher (only when authed). #124: the switcher
   // and dashboard are scoped to the pages the user's role may SEE — a plain
   // member never sees (or can pick) anyone else's page here.
-  const [capsForUser, allPages] = await Promise.all([
-    getCapabilitiesForUser(session.userId),
-    getAllPages(),
+  const capsForUser = await getCapabilitiesForUser(session.userId);
+  const [pageList, homeSlug] = await Promise.all([
+    getPageSwitcherPages(capsForUser.caps, session.userId),
+    getAdminHomeSlug(
+      capsForUser.caps,
+      session.userId,
+      capsForUser.pageNamespace ?? session.username.toLowerCase(),
+      capsForUser.roleText === "admin",
+    ),
   ]);
-  const visiblePages = filterVisiblePages(allPages, capsForUser.caps, session.userId);
-  const homeSlug = capsForUser.pageNamespace ?? session.username.toLowerCase();
-  const homePage = visiblePages.find((page) =>
-    page.isPublished && page.slug.toLowerCase() === homeSlug &&
-    (page.userId === session.userId ||
-      (page.userId === null && page.isDefault && capsForUser.roleText === "admin")),
-  ) ?? visiblePages.find((page) =>
-    page.isPublished && page.userId === session.userId && !page.slug.includes("/"),
-  );
-  const publicPageHref = homePage ? `/${homePage.slug}` : isDemoMode ? "/" : null;
+  const publicPageHref = homeSlug ? `/${homeSlug}` : isDemoMode ? "/" : null;
   const brandLabel = publicPageHref ? t("visitSite") : (await getTranslations("nav"))("dashboard");
   const showPages = showPageSwitcher(capsForUser.caps);
-  const pageList = visiblePages.map((p) => ({
-    id: p.id,
-    slug: p.slug,
-    title: p.title,
-    isDefault: p.isDefault,
-    isPublished: p.isPublished,
-  }));
 
   return (
     <NextIntlClientProvider>

@@ -4,15 +4,9 @@ import * as React from "react";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { Eye, X, RefreshCw, ExternalLink } from "lucide-react";
+import { parseAdminPageId } from "@/lib/page-path";
 import { cn } from "@/lib/utils";
-
-interface PageMeta {
-  id: number;
-  slug: string;
-  title: string;
-  isDefault: boolean;
-  isPublished: boolean;
-}
+import type { PageSwitcherPage } from "@/server/queries/admin-pages";
 
 // ── Context ─────────────────────────────────────────────────────────────
 
@@ -21,11 +15,13 @@ const PreviewContext = React.createContext<{
   open: boolean;
   setOpen: (v: boolean) => void;
   previewUrl: string | null;
+  activePage: PageSwitcherPage | null;
 }>({
   reload: () => {},
   open: false,
   setOpen: () => {},
   previewUrl: null,
+  activePage: null,
 });
 
 export function usePreview() {
@@ -38,7 +34,7 @@ export function PreviewProvider({
   pages,
   children,
 }: {
-  pages: PageMeta[];
+  pages: PageSwitcherPage[];
   children: React.ReactNode;
 }) {
   return (
@@ -53,19 +49,42 @@ function ActivePageResolver({
   pages,
   children,
 }: {
-  pages: PageMeta[];
+  pages: PageSwitcherPage[];
   children: React.ReactNode;
 }) {
   const searchParams = useSearchParams();
-  const pageId = searchParams.get("page");
+  const pageId = parseAdminPageId(searchParams.get("page"));
+  const shortcut = pages.find((page) => page.id === pageId);
+  const lookupId = shortcut ? null : pageId;
+  const [lookup, setLookup] = React.useState<{ id: number; page: PageSwitcherPage | null | undefined } | null>(null);
+  React.useEffect(() => {
+    if (lookupId === null) return;
+    const controller = new AbortController();
 
-  const activePage = React.useMemo(() => {
-    if (pageId) {
-      const found = pages.find((p) => p.id === Number(pageId));
-      if (found) return found;
+    async function loadPage(id: number) {
+      try {
+        const response = await fetch(`/api/admin/page-switcher?page=${id}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const page: PageSwitcherPage | null | undefined = response.ok
+          ? await response.json()
+          : response.status === 404 ? null : undefined;
+        if (!controller.signal.aborted) setLookup({ id, page });
+      } catch {
+        if (!controller.signal.aborted) setLookup({ id, page: undefined });
+      }
     }
-    return pages.find((p) => p.isDefault) ?? pages[0];
-  }, [pageId, pages]);
+
+    void loadPage(lookupId);
+    return () => controller.abort();
+  }, [lookupId, pages]);
+
+  const fallback = pages[0] ?? null;
+  const selectedPage = lookup?.id === lookupId ? lookup?.page : undefined;
+  const activePage = lookupId === null || selectedPage === null
+    ? shortcut ?? fallback
+    : selectedPage ?? null;
 
   const [open, setOpen] = React.useState(false);
   // Last known scroll position inside the preview iframe. Lives here (above
@@ -87,8 +106,8 @@ function ActivePageResolver({
   const previewUrl = activePage ? `/${activePage.slug}` : null;
 
   const contextValue = React.useMemo(
-    () => ({ reload, open, setOpen, previewUrl }),
-    [reload, open, previewUrl],
+    () => ({ reload, open, setOpen, previewUrl, activePage }),
+    [reload, open, previewUrl, activePage],
   );
 
   return (
