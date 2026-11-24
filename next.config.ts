@@ -41,11 +41,14 @@ function buildCsp(): { key: string; value: string } {
     .filter(Boolean)
     .join(" ");
 
+  // Cloudflare injects its beacon at the base URL or with a version suffix.
+  const cloudflareBeacon = "https://static.cloudflareinsights.com/beacon.min.js";
+
   return {
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}${extraScriptSrc ? ` ${extraScriptSrc}` : ""}`,
+      `script-src 'self' 'unsafe-inline' ${cloudflareBeacon} ${cloudflareBeacon}/${isDev ? " 'unsafe-eval'" : ""}${extraScriptSrc ? ` ${extraScriptSrc}` : ""}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       // Media (background videos) — same trust model as img-src: operators
