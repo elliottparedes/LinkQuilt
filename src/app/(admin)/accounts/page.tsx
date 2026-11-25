@@ -2,6 +2,7 @@ import { Users } from "lucide-react";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
+import { pageVisibility } from "@/lib/ownership";
 import { getSession } from "@/lib/auth";
 import { getCapabilitiesForUser, listAccountSummaries, listRoles, getSetting } from "@/server/queries";
 
@@ -49,7 +50,7 @@ export default async function AccountsPage() {
     name: r.name,
     isBuiltin: r.isBuiltin,
     pagesLimit: r.pagesLimit,
-    pagesVisibility: r.pagesVisibility,
+    pagesVisibility: pageVisibility(r.pagesVisibility),
     canManageAccounts: r.canManageAccounts,
     canManageInstance: r.canManageInstance,
     idleMinutes: r.idleMinutes,

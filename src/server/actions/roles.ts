@@ -44,7 +44,7 @@ async function requireRoleManager() {
 
 const nameSchema = z.string().trim().min(1, "Role name is required").max(64);
 
-const visibilitySchema = z.enum(["own", "view_all", "manage_all"]);
+const visibilitySchema = z.enum(["own", "view_all"]);
 
 /** Checkbox fields arrive as "on"/"off"/absent (null) — absent means off. */
 const flag = z
@@ -69,7 +69,7 @@ const limitSchema = z
 export type RoleActionPayload = {
   name: string;
   pagesLimit: number | null;
-  pagesVisibility: "own" | "view_all" | "manage_all";
+  pagesVisibility: "own" | "view_all";
   canManageAccounts: boolean;
   canManageInstance: boolean;
 };

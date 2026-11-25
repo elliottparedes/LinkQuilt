@@ -24,6 +24,8 @@ describe("admin page navigation", () => {
     expect(shortcuts[0]).not.toHaveProperty("bio");
     expect(await getAdminPage(ADMIN_CAPABILITIES, admin.id, String(foreign.id))).toMatchObject({ id: foreign.id });
     expect(await getAdminPage(MEMBER_CAPABILITIES, admin.id, String(foreign.id))).toMatchObject({ id: own.id });
+    expect(await getPageSwitcherPage(ADMIN_CAPABILITIES, admin.id, foreign.id)).toMatchObject({ canEdit: false });
+    expect(await getPageSwitcherPage(ADMIN_CAPABILITIES, admin.id, own.id)).toMatchObject({ canEdit: true });
     expect(await getPageSwitcherPage(MEMBER_CAPABILITIES, admin.id, foreign.id)).toBeNull();
     expect(await getPageSwitcherPage({ ...MEMBER_CAPABILITIES, visibility: "view_all" }, admin.id, foreign.id))
       .toMatchObject({ id: foreign.id, canEdit: false });

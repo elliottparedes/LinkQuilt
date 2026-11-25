@@ -5,17 +5,15 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { demoGuard } from "@/lib/demo-guard";
 import {
-  type ActionError,
   type ActionResult,
   validationError,
   unauthorizedError,
   forbiddenError,
-  notFoundError,
   conflictError,
   ErrorCode,
   logError,
 } from "@/lib/errors";
-import { canEditPage } from "@/lib/ownership";
+import { assertPageAccess } from "@/server/access";
 import { isReservedPageNamespace, isReservedSubpageSlug, PageSlugConflict, replacePageSlug, splitPageSlug } from "@/lib/page-path";
 import { getCapabilitiesForUser } from "@/server/queries";
 import {
@@ -23,32 +21,7 @@ import {
   updatePage as updatePageQuery,
   deletePage as deletePageQuery,
   getDefaultPage,
-  getPageById,
 } from "@/server/queries";
-
-/**
- * Load a page and assert the current session may EDIT it (#124). The actor's
- * capabilities come from the role ROW (getCapabilitiesForUser); admins and
- * manage_all roles pass for any page, owners only for their own. Returns the
- * page on success, or an error ActionResult (not-found / forbidden) the
- * caller returns as-is.
- */
-async function assertPageAccess(
-  pageId: number,
-): Promise<{ page: NonNullable<Awaited<ReturnType<typeof getPageById>>>; error: null } | { page: null; error: ActionError }> {
-  const session = await getSession();
-  if (!session) return { page: null, error: unauthorizedError() };
-  const page = await getPageById(pageId);
-  // Return not-found (not forbidden) for a missing page so we don't leak which
-  // ids exist; canEditPage also rejects null.
-  if (!page) return { page: null, error: notFoundError("Page not found") };
-  const { caps } = await getCapabilitiesForUser(session.userId);
-  if (!canEditPage(caps, session, page)) {
-    return { page: null, error: forbiddenError("You do not have access to this page") };
-  }
-  return { page, error: null };
-}
-
 
 const slugSchema = z
   .string()
@@ -404,8 +377,16 @@ export async function deletePageAction(formData: FormData): Promise<ActionResult
     return validationError("The default page cannot be deleted");
   }
 
+  if (mode === "keep" && !access.canEdit(def)) {
+    return forbiddenError("You can only move links to a default page you can edit");
+  }
+
   try {
-    await deletePageQuery(pageId, mode === "wipe");
+    if (mode === "keep") {
+      await deletePageQuery(pageId, false, def.id);
+    } else {
+      await deletePageQuery(pageId, true);
+    }
   } catch (err) {
     logError("deletePageAction", err, { pageId, mode });
     return {

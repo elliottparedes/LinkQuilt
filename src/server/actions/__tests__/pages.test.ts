@@ -283,7 +283,7 @@ describe("deletePageAction", () => {
   it("deletes a non-default page (keep mode)", async () => {
     const res = await deletePageAction(fd({ pageId: "7", mode: "keep" }));
     expect(res.success).toBe(true);
-    expect(mocks.deletePage).toHaveBeenCalledWith(7, false);
+    expect(mocks.deletePage).toHaveBeenCalledWith(7, false, 1);
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/links");
   });
 

@@ -12,6 +12,7 @@ import {
   deletePage,
   getSectionsByPage,
   reorderSections,
+  reorderLinks,
   reorderPageContent,
   createLink,
   getActiveLinks,
@@ -105,6 +106,7 @@ describe("[integration] reorderPageContent", () => {
         { id: l2.id, sectionId: null },
       ],
       [s2.id, s1.id],
+      rid,
     );
 
     const links = await getActiveLinks(rid);
@@ -118,6 +120,24 @@ describe("[integration] reorderPageContent", () => {
 
     const sections = await getSectionsByPage(rid);
     expect(sections.map((s) => s.title)).toEqual(["Beta", "Alpha"]);
+  });
+});
+
+describe("[integration] page-scoped reordering", () => {
+  it("rejects mixed-page links and sections without updating any rows", async () => {
+    const first = await seedPage({ slug: "reorder-owned", isDefault: false });
+    const second = await seedPage({ slug: "reorder-foreign", isDefault: false });
+    const own = await createLink({ pageId: first.id, title: "Own", url: "https://example.com" });
+    const foreign = await createLink({ pageId: second.id, title: "Foreign", url: "https://example.com" });
+    const ownSection = await createSection({ pageId: first.id, title: "Own section" });
+    const foreignSection = await createSection({ pageId: second.id, title: "Foreign section" });
+
+    expect(await reorderLinks([own.id, foreign.id], first.id)).toBe(false);
+    expect(await reorderPageContent([{ id: own.id, sectionId: foreignSection.id }], [], first.id)).toBe(false);
+    expect(await reorderPageContent([], [ownSection.id, foreignSection.id], first.id)).toBe(false);
+    expect(await getActiveLinks(first.id)).toEqual([own]);
+    expect(await getActiveLinks(second.id)).toEqual([foreign]);
+    expect(await getSectionsByPage(second.id)).toEqual([foreignSection]);
   });
 });
 

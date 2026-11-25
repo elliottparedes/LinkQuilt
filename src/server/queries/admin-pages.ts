@@ -46,7 +46,11 @@ export async function getAdminPage(caps: RoleCapabilities, userId: number, pageP
     if (requested) return requested;
   }
 
-  const [fallback] = await db.select().from(pages).where(visibility).orderBy(...pageOrder).limit(1);
+  // Landing in an editor should prefer an editable page, even when another account owns the instance default.
+  const owned = eq(pages.userId, userId);
+  const editable = caps.manageAccounts && caps.manageInstance ? or(owned, isNull(pages.userId)) : owned;
+  const [fallback] = await db.select().from(pages).where(visibility)
+    .orderBy(sql`case when ${editable} then 0 else 1 end`, ...pageOrder).limit(1);
   if (fallback) return fallback;
   return visibility ? null : ensureDefaultPage();
 }

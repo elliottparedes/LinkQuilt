@@ -30,6 +30,7 @@ import {
   type AnalyticsRange,
   type BreakdownEntry,
 } from "@/server/queries";
+import { canEditPage } from "@/lib/ownership";
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getAdminPage } from "@/server/queries/admin-pages";
@@ -343,6 +344,7 @@ export default async function DashboardPage({
   const canManageInstance = caps.manageInstance;
   const activePage = await getAdminPage(caps, session.userId, pageParam);
   if (!activePage) redirect("/pages");
+  const editable = canEditPage(caps, session, activePage);
   const pageId = activePage.id;
 
   const [stats, prevStats, links, breakdown, activeTheme, retentionDays, linkRates, heatmap, activity, socialTaps] = await Promise.all([
@@ -394,13 +396,15 @@ export default async function DashboardPage({
       {canManageInstance && showBackupNotice ? <BackupFailureNotice /> : null}
 
       {/* Onboarding checklist — auto-hides when all done or dismissed */}
-      <OnboardingChecklist
-        hasLinks={activeCount > 0}
-        hasDisplayName={(activePage?.title?.length ?? 0) > 0}
-        hasTheme={activeTheme !== null}
-      />
+      {editable && (
+        <OnboardingChecklist
+          hasLinks={activeCount > 0}
+          hasDisplayName={activePage.title.length > 0}
+          hasTheme={activeTheme !== null}
+        />
+      )}
 
-      {isEmptyState ? (
+      {editable && isEmptyState ? (
         /* Welcome hero for fresh installs — replaces empty stats grid */
         <div className="flex flex-col items-center gap-4 rounded-xl border border-border bg-card/50 p-8 text-center lg:p-12">
           <div className="flex size-16 items-center justify-center rounded-full bg-violet/15">

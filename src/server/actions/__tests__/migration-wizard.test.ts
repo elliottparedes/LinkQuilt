@@ -76,11 +76,18 @@ describe("confirmImport icon handling (#95)", () => {
     vi.clearAllMocks();
     mocks.demoBlock.mockReturnValue(null);
     mocks.getSession.mockResolvedValue({ userId: 1, username: "admin", exp: Date.now() + 60000, pv: 1 });
-    mocks.getDefaultPage.mockResolvedValue({ id: 1, slug: "home", socialLinks: "[]" });
-    mocks.getPageById.mockResolvedValue({ id: 1, slug: "home", socialLinks: "[]" });
+    mocks.getDefaultPage.mockResolvedValue({ id: 1, slug: "home", userId: 1, socialLinks: "[]" });
+    mocks.getPageById.mockResolvedValue({ id: 1, slug: "home", userId: 1, socialLinks: "[]" });
     mocks.createLink.mockResolvedValue({ id: 1 });
     mocks.updatePage.mockResolvedValue(undefined);
     mocks.fetchAndCacheFavicon.mockResolvedValue("/api/uploads/favicon-test.png");
+  });
+
+  it("rejects another account's page before importing links or social profiles", async () => {
+    mocks.getPageById.mockResolvedValue({ id: 2, userId: 2 });
+    expect((await confirmImport(null, makeFormData([makeLink(1)]))).success).toBe(false);
+    expect(mocks.createLink).not.toHaveBeenCalled();
+    expect(mocks.updatePage).not.toHaveBeenCalled();
   });
 
   it("resolves favicons for imported links (the old code never fetched them)", async () => {

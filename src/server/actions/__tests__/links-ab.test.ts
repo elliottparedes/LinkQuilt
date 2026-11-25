@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   revalidatePath: vi.fn(),
   updateLink: vi.fn(async () => undefined),
   getLink: vi.fn(async () => null as null | Record<string, unknown>),
+  getPageById: vi.fn(async () => ({ id: 4, userId: 1 })),
   updateSetting: vi.fn(async () => undefined),
 }));
 
@@ -22,6 +23,8 @@ vi.mock("@/lib/auth", () => ({ getSession: mocks.getSession }));
 vi.mock("@/lib/demo", () => ({ demoBlock: mocks.demoBlock }));
 vi.mock("@/server/queries", () => ({
   getLink: mocks.getLink,
+  getPageById: mocks.getPageById,
+  getCapabilitiesForUser: vi.fn(async () => ({ caps: { manageAccounts: true, manageInstance: true } })),
   updateLink: mocks.updateLink,
   createLink: vi.fn(),
   deleteLink: vi.fn(),
@@ -45,6 +48,7 @@ import { computeAbEditorInitial } from "@/app/(admin)/links/components/ab-test-e
 function urlLink(abConfig: string | null = null): Record<string, unknown> {
   return {
     id: 7,
+    pageId: 4,
     type: "url",
     url: "https://example.com/a",
     abConfig,
@@ -73,6 +77,7 @@ beforeEach(() => {
   mocks.demoBlock.mockReturnValue(null);
   mocks.getSession.mockResolvedValue({ userId: 1, username: "admin", exp: Date.now() + 60000, pv: 1 });
   mocks.updateLink.mockResolvedValue(undefined);
+  mocks.getPageById.mockResolvedValue({ id: 4, userId: 1 });
 });
 
 describe("setAbTest", () => {
@@ -88,6 +93,16 @@ describe("setAbTest", () => {
     mocks.getSession.mockResolvedValue(null);
     const res = await setAbTest(fd({ id: "7", urlB: "https://example.com/b", weightA: "50" }));
     expect(res.success).toBe(false);
+  });
+
+  it("rejects an admin trying to change another account’s A/B test", async () => {
+    mocks.getPageById.mockResolvedValue({ id: 4, userId: 2 });
+    mocks.getLink.mockResolvedValue(urlLink(serializeAbConfig(runningConfig)));
+    expect(await setAbTest(fd({ id: "7", urlB: "https://example.com/b" }))).toMatchObject({ errorCode: "forbidden" });
+    expect(await setAbTestStatus(fd({ id: "7", status: "paused" }))).toMatchObject({ errorCode: "forbidden" });
+    expect(await promoteAbVariant(fd({ id: "7", winner: "B" }))).toMatchObject({ errorCode: "forbidden" });
+    expect(await removeAbTest(fd({ id: "7" }))).toMatchObject({ errorCode: "forbidden" });
+    expect(mocks.updateLink).not.toHaveBeenCalled();
   });
 
   it("creates a running test on a URL link", async () => {

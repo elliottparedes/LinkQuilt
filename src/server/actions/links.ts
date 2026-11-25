@@ -18,6 +18,8 @@ import {
   deleteLink as deleteLinkQuery,
   getAllLinks,
   getPageById,
+  getDefaultPage,
+  getSectionPageId,
   getLink,
   reorderLinks as reorderLinksQuery,
   isSlugTaken,
@@ -56,14 +58,13 @@ async function requireAuth(): Promise<boolean> {
 /**
  * #124 page-ownership gate for link mutations. Resolves the target page
  * (explicit pageId, else the link's own page via getLink) and asserts the
- * session may EDIT it — capabilities from the role ROW. Admins and manage_all
- * roles pass for any page; owners only for their own. Pass linkId when the
+ * session may edit it. Pass linkId when the
  * mutation targets an existing link so the page is derived from that link
  * rather than a client-supplied pageId.
  */
 async function assertLinkPageAccess(
   session: { userId: number; role?: string },
-  opts: { pageId?: number; linkId?: number },
+  opts: { pageId?: number; linkId?: number; sectionId?: number | null },
 ): Promise<ActionResult | null> {
   let pageId = opts.pageId;
   if (pageId == null && opts.linkId != null) {
@@ -71,17 +72,15 @@ async function assertLinkPageAccess(
     if (!link) return notFoundError("Link not found");
     pageId = link.pageId;
   }
-  if (pageId == null) {
-    // No page specified — fall back to the default page (matches query-layer
-    // defaulting for createLink with no pageId).
-    const { getDefaultPage } = await import("@/server/queries");
-    pageId = (await getDefaultPage()).id;
-  }
+  if (pageId == null) return notFoundError("Page not found");
   const page = await getPageById(pageId);
   if (!page) return notFoundError("Page not found");
   const { caps } = await getCapabilitiesForUser(session.userId);
   if (!canEditPage(caps, session, page)) {
     return forbiddenError("You do not have access to this page");
+  }
+  if (opts.sectionId != null && await getSectionPageId(opts.sectionId) !== page.id) {
+    return forbiddenError("That section does not belong to this page");
   }
   return null;
 }
@@ -285,7 +284,8 @@ export async function createLink(formData: FormData): Promise<ActionResult> {
   const session = await getSession();
   if (!session) return unauthorizedError();
   // #124: page-ownership gate — an owner may only add links to their own page.
-  const access = await assertLinkPageAccess(session, { pageId: parsed.data.pageId });
+  const pageId = parsed.data.pageId ?? (await getDefaultPage()).id;
+  const access = await assertLinkPageAccess(session, { pageId, sectionId: parsed.data.sectionId });
   if (access) return access;
 
   const d = parsed.data;
@@ -327,7 +327,7 @@ export async function createLink(formData: FormData): Promise<ActionResult> {
     await createLinkQuery({
       title: d.title,
       url: popup.url,
-      pageId: d.pageId,
+      pageId,
       description,
       imageUrl,
       type: d.type,
@@ -405,7 +405,7 @@ export async function updateLink(formData: FormData): Promise<ActionResult> {
   const session = await getSession();
   if (!session) return unauthorizedError();
   // #124: page-ownership gate — an owner may only edit links on their own page.
-  const access = await assertLinkPageAccess(session, { linkId: Number(parsed.data.id) });
+  const access = await assertLinkPageAccess(session, { linkId: Number(parsed.data.id), sectionId: parsed.data.sectionId });
   if (access) return access;
 
   const d = parsed.data;
@@ -562,15 +562,14 @@ export async function reorderLinks(orderedIds: number[]): Promise<ActionResult> 
 
   const session = await getSession();
   if (!session) return unauthorizedError();
-  if (orderedIds.length > 0) {
-    // #124: reorder is a bulk write — gate on the first id's page. All ids in a
-    // single reorder gesture belong to one page's list in the UI.
-    const access = await assertLinkPageAccess(session, { linkId: orderedIds[0] });
-    if (access) return access;
-  }
+  if (!orderedIds.length) return { success: true };
+  const link = await getLink(orderedIds[0]);
+  if (!link) return notFoundError("Link not found");
+  const access = await assertLinkPageAccess(session, { pageId: link.pageId });
+  if (access) return access;
 
   try {
-    await reorderLinksQuery(orderedIds);
+    if (!await reorderLinksQuery(orderedIds, link.pageId)) return forbiddenError();
     revalidatePath("/links");
     revalidatePath("/");
     return { success: true };
@@ -596,6 +595,7 @@ export async function createDivider(pageId?: number): Promise<ActionResult> {
 
   const session = await getSession();
   if (!session) return unauthorizedError();
+  pageId ??= (await getDefaultPage()).id;
   const access = await assertLinkPageAccess(session, { pageId });
   if (access) return access;
 
@@ -664,13 +664,16 @@ const abWeightsSchema = z.object({
 export async function setAbTest(formData: FormData): Promise<ActionResult> {
   const blocked = demoGuard();
   if (blocked) return blocked;
-  if (!(await requireAuth())) return unauthorizedError();
+  const session = await getSession();
+  if (!session) return unauthorizedError();
 
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) return validationError("Invalid link id");
 
   const link = await getLink(id);
   if (!link) return notFoundError("Link not found");
+  const denied = await assertLinkPageAccess(session, { pageId: link.pageId });
+  if (denied) return denied;
   if (link.type !== "url") {
     return validationError("A/B tests are only available for URL links");
   }
@@ -753,7 +756,8 @@ export async function setAbTest(formData: FormData): Promise<ActionResult> {
 export async function setAbTestStatus(formData: FormData): Promise<ActionResult> {
   const blocked = demoGuard();
   if (blocked) return blocked;
-  if (!(await requireAuth())) return unauthorizedError();
+  const session = await getSession();
+  if (!session) return unauthorizedError();
 
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) return validationError("Invalid link id");
@@ -764,6 +768,8 @@ export async function setAbTestStatus(formData: FormData): Promise<ActionResult>
 
   const link = await getLink(id);
   if (!link) return notFoundError("Link not found");
+  const denied = await assertLinkPageAccess(session, { pageId: link.pageId });
+  if (denied) return denied;
   const existing = parseAbConfig(link.abConfig ?? null);
   if (!existing) return validationError("This link has no A/B test");
   if (existing.status === "archived") {
@@ -797,7 +803,8 @@ export async function setAbTestStatus(formData: FormData): Promise<ActionResult>
 export async function promoteAbVariant(formData: FormData): Promise<ActionResult> {
   const blocked = demoGuard();
   if (blocked) return blocked;
-  if (!(await requireAuth())) return unauthorizedError();
+  const session = await getSession();
+  if (!session) return unauthorizedError();
 
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) return validationError("Invalid link id");
@@ -808,6 +815,8 @@ export async function promoteAbVariant(formData: FormData): Promise<ActionResult
 
   const link = await getLink(id);
   if (!link) return notFoundError("Link not found");
+  const denied = await assertLinkPageAccess(session, { pageId: link.pageId });
+  if (denied) return denied;
   const existing = parseAbConfig(link.abConfig ?? null);
   if (!existing) return validationError("This link has no A/B test");
 
@@ -846,13 +855,16 @@ export async function promoteAbVariant(formData: FormData): Promise<ActionResult
 export async function removeAbTest(formData: FormData): Promise<ActionResult> {
   const blocked = demoGuard();
   if (blocked) return blocked;
-  if (!(await requireAuth())) return unauthorizedError();
+  const session = await getSession();
+  if (!session) return unauthorizedError();
 
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) return validationError("Invalid link id");
 
   const link = await getLink(id);
   if (!link) return notFoundError("Link not found");
+  const denied = await assertLinkPageAccess(session, { pageId: link.pageId });
+  if (denied) return denied;
   if (!parseAbConfig(link.abConfig ?? null)) {
     return validationError("This link has no A/B test");
   }

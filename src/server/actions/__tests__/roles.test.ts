@@ -168,9 +168,9 @@ describe("createRoleAction", () => {
 describe("updateRoleAction", () => {
   it("updates a custom role", async () => {
     mocks.getRoleById.mockResolvedValue({ id: 3, name: "Editor", isBuiltin: false });
-    const res = await updateRoleAction(fd({ roleId: "3", name: "Editor", pagesLimit: "5", pagesVisibility: "manage_all" }));
+    const res = await updateRoleAction(fd({ roleId: "3", name: "Editor", pagesLimit: "5", pagesVisibility: "view_all" }));
     expect(res.success).toBe(true);
-    expect(mocks.updateRole).toHaveBeenCalledWith(3, expect.objectContaining({ pagesVisibility: "manage_all", pagesLimit: 5 }));
+    expect(mocks.updateRole).toHaveBeenCalledWith(3, expect.objectContaining({ pagesVisibility: "view_all", pagesLimit: 5 }));
   });
 
   it("NEVER lets anyone weaken the builtin Admin role", async () => {

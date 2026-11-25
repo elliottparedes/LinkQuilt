@@ -211,7 +211,7 @@ export function AccountsManager({
     : "";
 
   const visibilityLabel = (v: string) =>
-    v === "manage_all" ? t("visManageAll") : v === "view_all" ? t("visViewAll") : t("visOwn");
+    v === "view_all" ? t("visViewAll") : t("visOwn");
 
   return (
     <div className="flex flex-col gap-6">
@@ -735,9 +735,6 @@ export function AccountsManager({
                 </option>
                 <option value="view_all" className="bg-background text-foreground">
                   {t("visViewAll")}
-                </option>
-                <option value="manage_all" className="bg-background text-foreground">
-                  {t("visManageAll")}
                 </option>
               </select>
             </FormField>

@@ -348,7 +348,7 @@ export async function updatePage(id: number, data: UpdatePageInput): Promise<voi
   }
 }
 
-export async function deletePage(id: number, wipe = false): Promise<void> {
+export async function deletePage(id: number, wipe = false, expectedDefaultPageId?: number): Promise<void> {
   await db.transaction(async (tx) => {
     await lockPagePaths(tx);
     const [target] = await tx.select({ isDefault: pages.isDefault }).from(pages).where(eq(pages.id, id));
@@ -362,6 +362,9 @@ export async function deletePage(id: number, wipe = false): Promise<void> {
       // The default page always exists (schema invariant), so assert it.
       const def = (await tx.select({ id: pages.id }).from(pages).where(eq(pages.isDefault, true)).limit(1))[0];
       if (!def) throw new Error("No default page found to move links to");
+      if (expectedDefaultPageId !== undefined && def.id !== expectedDefaultPageId) {
+        throw new Error("The default page changed before links could be moved");
+      }
       (await tx.update(links).set({ pageId: def.id, sectionId: null }).where(eq(links.pageId, id)));
     }
     // Clear pageId on analytics rows (keep historical data, disassociate page).
@@ -550,13 +553,25 @@ export async function deleteLink(id: number): Promise<void> {
   await db.delete(links).where(eq(links.id, id));
 }
 
-export async function reorderLinks(orderedIds: number[]): Promise<void> {
-  if (orderedIds.length === 0) return;
+// Lock the submitted rows before changing any positions. A mixed-page gesture
+// must fail as a whole, including when a drop targets a section on another page.
+async function itemsBelongToPage(tx: Pick<typeof db, "select">, table: typeof links | typeof linkSections, ids: number[], pageId: number) {
+  const unique = [...new Set(ids)];
+  if (!unique.length) return true;
+  const rows = await tx.select({ id: table.id }).from(table)
+    .where(and(eq(table.pageId, pageId), inArray(table.id, unique))).orderBy(table.id).for("update");
+  return rows.length === unique.length;
+}
+
+export async function reorderLinks(orderedIds: number[], pageId?: number): Promise<boolean> {
+  if (orderedIds.length === 0) return true;
   // Batch all updates in a single transaction so reorder is atomic and fast.
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
+    if (pageId !== undefined && !await itemsBelongToPage(tx, links, orderedIds, pageId)) return false;
     for (let i = 0; i < orderedIds.length; i++) {
       (await tx.update(links).set({ orderIndex: i }).where(eq(links.id, orderedIds[i])));
     }
+    return true;
   });
 }
 
@@ -671,9 +686,15 @@ export async function reorderSections(orderedIds: number[]): Promise<void> {
 export async function reorderPageContent(
   linkOrder: Array<{ id: number; sectionId: number | null }>,
   sectionOrder: number[],
-): Promise<void> {
-  if (linkOrder.length === 0 && sectionOrder.length === 0) return;
-  await db.transaction(async (tx) => {
+  pageId?: number,
+): Promise<boolean> {
+  if (linkOrder.length === 0 && sectionOrder.length === 0) return true;
+  return db.transaction(async (tx) => {
+    if (pageId !== undefined) {
+      const sectionIds = [...sectionOrder, ...linkOrder.flatMap((link) => link.sectionId === null ? [] : [link.sectionId])];
+      if (!await itemsBelongToPage(tx, linkSections, sectionIds, pageId) ||
+          !await itemsBelongToPage(tx, links, linkOrder.map((link) => link.id), pageId)) return false;
+    }
     for (let i = 0; i < sectionOrder.length; i++) {
       (await tx.update(linkSections)
         .set({ orderIndex: i })
@@ -684,6 +705,7 @@ export async function reorderPageContent(
         .set({ orderIndex: i, sectionId: linkOrder[i].sectionId })
         .where(eq(links.id, linkOrder[i].id)));
     }
+    return true;
   });
 }
 

@@ -11,14 +11,14 @@ import {
   notFoundError,
   conflictError,
 } from "@/lib/errors";
-import { requireInstanceAdmin } from "@/server/access";
+import { assertPageAccess, requireInstanceAdmin } from "@/server/access";
 import { parseDomainInput } from "@/lib/host-routing";
-import { getPageById } from "@/server/queries";
 import {
   activateDomain,
   createDomain,
   deleteDomain,
   getDomainByHost,
+  getDomainById,
   listAdminDomains,
   saveDomainPolicy,
   setPageDomainScope,
@@ -72,8 +72,8 @@ export async function addDomainAction(
     return validationError("Enter a valid domain name, e.g. jane.com");
   }
 
-  const page = await getPageById(parsed.data.pageId);
-  if (!page) return notFoundError("Page not found");
+  const { error } = await assertPageAccess(parsed.data.pageId);
+  if (error) return error;
 
   if (await getDomainByHost(host)) {
     return conflictError("This domain is already bound");
@@ -120,6 +120,8 @@ export async function updateDomainAction(formData: FormData): Promise<ActionResu
   const rows = await listAdminDomains();
   const domain = rows.find((d) => d.id === parsed.data.domainId);
   if (!domain) return notFoundError("Domain not found");
+  const { error } = await assertPageAccess(domain.pageId);
+  if (error) return error;
 
   // Same one-primary-per-page rule on edits.
   if (
@@ -151,6 +153,10 @@ export async function deleteDomainAction(formData: FormData): Promise<ActionResu
   const parsed = idSchema.safeParse(formData.get("domainId"));
   if (!parsed.success) return validationError("Invalid domain");
 
+  const domain = await getDomainById(parsed.data);
+  if (!domain) return notFoundError("Domain not found");
+  const { error } = await assertPageAccess(domain.pageId);
+  if (error) return error;
   await deleteDomain(parsed.data);
   refresh();
   return { success: true };
@@ -167,6 +173,10 @@ export async function activateDomainAction(formData: FormData): Promise<ActionRe
   if (!parsed.success) return validationError("Invalid domain");
 
   // Manual activation for /etc/hosts-style testing before DNS propagates.
+  const domain = await getDomainById(parsed.data);
+  if (!domain) return notFoundError("Domain not found");
+  const { error } = await assertPageAccess(domain.pageId);
+  if (error) return error;
   await activateDomain(parsed.data);
   refresh();
   return { success: true };
@@ -186,8 +196,8 @@ export async function setPageDomainScopeAction(
     .safeParse({ pageId: formData.get("pageId"), scope: formData.get("scope") });
   if (!parsed.success) return validationError("Invalid scope");
 
-  const page = await getPageById(parsed.data.pageId);
-  if (!page) return notFoundError("Page not found");
+  const { error } = await assertPageAccess(parsed.data.pageId);
+  if (error) return error;
 
   await setPageDomainScope(parsed.data.pageId, parsed.data.scope);
   refresh();

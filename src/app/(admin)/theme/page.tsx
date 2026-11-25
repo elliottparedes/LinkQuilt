@@ -32,6 +32,7 @@ export default async function ThemePage({
 
   const { page: pageParam } = await searchParams;
   const activePage = await getAdminPage(caps, session.userId, pageParam);
+  if (activePage && !canEditPage(caps, session, activePage)) redirect(`/dashboard?page=${activePage.id}`);
 
   const [themes, pageTheme, fontRows] = await Promise.all([
     caps.manageInstance ? getAllThemes() : getThemeLibrary(session.userId),

@@ -63,7 +63,7 @@ describe("resolveCapabilities", () => {
     const caps = resolveCapabilities("admin", adminRow);
     expect(caps).toEqual({
       pagesLimit: null,
-      visibility: "manage_all",
+      visibility: "view_all",
       manageAccounts: true,
       manageInstance: true,
     });
@@ -73,7 +73,7 @@ describe("resolveCapabilities", () => {
     const corrupted: RoleRowLike = { ...adminRow, canManageAccounts: false, canManageInstance: false, pagesVisibility: "own", pagesLimit: 0 };
     expect(resolveCapabilities("admin", corrupted).manageAccounts).toBe(true);
     expect(resolveCapabilities("admin", corrupted).manageInstance).toBe(true);
-    expect(resolveCapabilities("admin", corrupted).visibility).toBe("manage_all");
+    expect(resolveCapabilities("admin", corrupted).visibility).toBe("view_all");
     expect(resolveCapabilities("admin", corrupted).pagesLimit).toBeNull();
   });
 
@@ -84,13 +84,13 @@ describe("resolveCapabilities", () => {
       manageAccounts: false,
       manageInstance: false,
     });
-    expect(resolveCapabilities("owner", teamLeadRow).visibility).toBe("manage_all");
+    expect(resolveCapabilities("owner", teamLeadRow).visibility).toBe("view_all");
     expect(resolveCapabilities("owner", teamLeadRow).manageAccounts).toBe(false);
   });
 
   it("NULL role row maps through the legacy TEXT role (never silent demotion)", () => {
     expect(resolveCapabilities("admin", null).manageAccounts).toBe(true);
-    expect(resolveCapabilities("admin", null).visibility).toBe("manage_all");
+    expect(resolveCapabilities("admin", null).visibility).toBe("view_all");
     expect(resolveCapabilities("owner", null)).toEqual({
       pagesLimit: 5,
       visibility: "own",
@@ -116,8 +116,8 @@ describe("filterVisiblePages (admin page switcher / dashboard scoping)", () => {
   ];
   const memberCaps = { pagesLimit: 1, visibility: "own" as const, manageAccounts: false, manageInstance: false };
   const viewerCaps = { pagesLimit: 3, visibility: "view_all" as const, manageAccounts: false, manageInstance: false };
-  const leadCaps = { pagesLimit: null, visibility: "manage_all" as const, manageAccounts: false, manageInstance: false };
-  const adminCaps = { pagesLimit: null, visibility: "manage_all" as const, manageAccounts: true, manageInstance: true };
+  const leadCaps = { pagesLimit: null, visibility: "view_all" as const, manageAccounts: false, manageInstance: false };
+  const adminCaps = { pagesLimit: null, visibility: "view_all" as const, manageAccounts: true, manageInstance: true };
 
   it("own-visibility member sees ONLY their own pages (never legacy rows)", () => {
     expect(filterVisiblePages(pages, memberCaps, 20).map((p) => p.id)).toEqual([20]);
@@ -125,11 +125,11 @@ describe("filterVisiblePages (admin page switcher / dashboard scoping)", () => {
   });
 
   it("view_all member sees every page (read-only surface)", () => {
-    expect(filterVisiblePages(pages, viewerCaps, 20)).toHaveLength(3);
+    expect(filterVisiblePages(pages, viewerCaps, 20)).toHaveLength(2);
   });
 
   it("manage_all member sees every page", () => {
-    expect(filterVisiblePages(pages, leadCaps, 20)).toHaveLength(3);
+    expect(filterVisiblePages(pages, leadCaps, 20)).toHaveLength(2);
   });
 
   it("full admin sees every page", () => {
@@ -157,7 +157,7 @@ describe("pickVisiblePage", () => {
     { id: 20, slug: "bob", userId: 20, isDefault: false },
   ];
   const memberCaps = { pagesLimit: 1, visibility: "own" as const, manageAccounts: false, manageInstance: false };
-  const adminCaps = { pagesLimit: null, visibility: "manage_all" as const, manageAccounts: true, manageInstance: true };
+  const adminCaps = { pagesLimit: null, visibility: "view_all" as const, manageAccounts: true, manageInstance: true };
 
   it("does not hand a member the instance default page", () => {
     expect(pickVisiblePage(pages, memberCaps, 20, 10)?.id).toBe(20);
@@ -195,16 +195,17 @@ describe("view/edit page matrix over capabilities", () => {
     expect(canViewPage(caps, bobSession, legacy)).toBe(false);
   });
 
-  it("manage_all member can view AND edit others' pages, still not legacy rows", () => {
+  it("legacy manage_all roles can view other accounts’ pages without editing them", () => {
     const caps = resolveCapabilities("owner", teamLeadRow);
     expect(canViewPage(caps, bobSession, alice)).toBe(true);
-    expect(canEditPage(caps, bobSession, alice)).toBe(true);
+    expect(canEditPage(caps, bobSession, alice)).toBe(false);
     expect(canEditPage(caps, bobSession, legacy)).toBe(false);
   });
 
-  it("admin capabilities pass everywhere incl. legacy rows", () => {
+  it("admins can edit their own and ownerless legacy pages", () => {
     const caps = resolveCapabilities("admin", adminRow);
-    expect(canEditPage(caps, { userId: 1 }, alice)).toBe(true);
+    expect(canEditPage(caps, { userId: 1 }, alice)).toBe(false);
+    expect(canEditPage(caps, { userId: 10 }, alice)).toBe(true);
     expect(canEditPage(caps, { userId: 1 }, legacy)).toBe(true);
   });
 

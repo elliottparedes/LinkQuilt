@@ -57,6 +57,7 @@ vi.mock("@/server/queries", () => ({
   // page via getLink -> getPageById before mutating. Return a link on page 1
   // and a page owned by userId 1 so the default admin session is authorized.
   getLink: vi.fn(async () => ({ id: 1, pageId: 1 })),
+  getSectionPageId: vi.fn(async () => 1),
   getPageById: vi.fn(async () => ({ id: 1, slug: "home", userId: 1 })),
   getDefaultPage: vi.fn(async () => ({ id: 1, slug: "home", userId: 1 })),
   // #124 2B: the capability gate resolves the session user's role ROW.

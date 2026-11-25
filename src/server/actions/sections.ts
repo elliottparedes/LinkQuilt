@@ -9,8 +9,6 @@ import {
   updateSection as updateSectionQuery,
   deleteSection as deleteSectionQuery,
   reorderPageContent as reorderPageContentQuery,
-  getPageById,
-  getCapabilitiesForUser,
   getSectionPageId,
   getLink,
 } from "@/server/queries";
@@ -24,42 +22,12 @@ import {
   ErrorCode,
   logError,
 } from "@/lib/errors";
-import { canEditPage } from "@/lib/ownership";
+import { assertPageAccess } from "@/server/access";
 
 async function requireAuth(): Promise<boolean> {
   const session = await getSession();
   return !!session;
 }
-
-/**
- * #124 page-edit gate for section mutations. Resolves the owning page from a
- * pageId (or from a section/link id when the action targets one row) and
- * asserts the session may EDIT that page via its role-row capabilities.
- */
-async function assertSectionPageAccess(
-  session: { userId: number },
-  opts: { pageId?: number; sectionId?: number; linkId?: number },
-): Promise<ActionResult | null> {
-  let pageId: number | null | undefined = opts.pageId;
-  if (pageId == null && opts.sectionId != null) {
-    pageId = await getSectionPageId(opts.sectionId);
-    if (pageId == null) return notFoundError("Section not found");
-  }
-  if (pageId == null && opts.linkId != null) {
-    const link = await getLink(opts.linkId);
-    if (!link) return notFoundError("Link not found");
-    pageId = link.pageId;
-  }
-  if (pageId == null) return validationError("Missing page id");
-  const page = await getPageById(pageId);
-  if (!page) return notFoundError("Page not found");
-  const { caps } = await getCapabilitiesForUser(session.userId);
-  if (!canEditPage(caps, session, page)) {
-    return forbiddenError("You do not have access to this page");
-  }
-  return null;
-}
-
 
 export async function saveSection(formData: FormData): Promise<ActionResult> {
   const blocked = demoGuard();
@@ -78,14 +46,9 @@ export async function saveSection(formData: FormData): Promise<ActionResult> {
 
   const d = parsed.data;
 
-  // Verify the page exists so a section can't be attached to a foreign page —
-  // and that the session may EDIT it (#124 capability gate).
-  const page = await getPageById(d.pageId);
-  if (!page) return notFoundError("Page not found");
-  const session = await getSession();
-  if (!session) return unauthorizedError();
-  const denied = await assertSectionPageAccess(session, { pageId: d.pageId });
-  if (denied) return denied;
+  if (d.id && await getSectionPageId(d.id) !== d.pageId) return forbiddenError();
+  const { error } = await assertPageAccess(d.pageId);
+  if (error) return error;
 
   try {
     if (d.id) {
@@ -116,10 +79,10 @@ export async function deleteSection(formData: FormData): Promise<ActionResult> {
   const id = Number(idStr);
   if (Number.isNaN(id)) return validationError("Invalid section id");
 
-  const session = await getSession();
-  if (!session) return unauthorizedError();
-  const denied = await assertSectionPageAccess(session, { sectionId: id });
-  if (denied) return denied;
+  const pageId = await getSectionPageId(id);
+  if (pageId == null) return notFoundError("Section not found");
+  const { error } = await assertPageAccess(pageId);
+  if (error) return error;
 
   try {
     await deleteSectionQuery(id);
@@ -159,17 +122,17 @@ export async function reorderContent(payload: {
     return validationError("Invalid order payload");
   }
 
-  // #124: gate on the page the reordered links belong to (first link derives it).
-  const session = await getSession();
-  if (!session) return unauthorizedError();
-  const first = parsed.data.linkOrder[0];
-  if (first) {
-    const denied = await assertSectionPageAccess(session, { linkId: first.id });
-    if (denied) return denied;
-  }
+  const { linkOrder, sectionOrder } = parsed.data;
+  if (!linkOrder.length && !sectionOrder.length) return { success: true };
+  const pageId = linkOrder.length
+    ? (await getLink(linkOrder[0].id))?.pageId
+    : await getSectionPageId(sectionOrder[0]);
+  if (pageId == null) return notFoundError("Page not found");
+  const { error } = await assertPageAccess(pageId);
+  if (error) return error;
 
   try {
-    await reorderPageContentQuery(parsed.data.linkOrder, parsed.data.sectionOrder);
+    if (!await reorderPageContentQuery(linkOrder, sectionOrder, pageId)) return forbiddenError();
     revalidatePath("/links");
     revalidatePath("/");
     return { success: true };

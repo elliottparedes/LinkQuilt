@@ -229,6 +229,11 @@ export async function setPageDomainScope(
     .where(eq(pages.id, pageId));
 }
 
+export async function getDomainById(id: number) {
+  const [row] = await db.select({ pageId: domains.pageId }).from(domains).where(eq(domains.id, id)).limit(1);
+  return row;
+}
+
 export async function getDomainByHost(host: string) {
   const rows = await db.select().from(domains).where(eq(domains.host, host)).limit(1);
   return rows[0] ?? null;

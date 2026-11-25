@@ -13,7 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PreviewButton } from "@/components/admin/PreviewPane";
+import { PreviewButton, usePreview } from "@/components/admin/PreviewPane";
 import {
   SETTINGS_GROUP_PATHS,
   visibleSettingsGroup,
@@ -58,6 +58,7 @@ export function AdminNav({
   const t = useTranslations("nav");
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { activePage } = usePreview();
   const pageParam = searchParams.get("page");
   const query = pageParam ? `?page=${pageParam}` : "";
 
@@ -94,11 +95,12 @@ export function AdminNav({
     );
 
   const renderItem = (item: NavItem) => {
+    const pageQuery = activePage?.canEdit === false && item.href !== "/dashboard" ? "" : query;
     const active = isActive(item.href);
     return (
       <Link
         key={item.href}
-        href={`${item.href}${query}`}
+        href={`${item.href}${pageQuery}`}
         aria-current={active ? "page" : undefined}
         title={rail ? t(item.label) : undefined}
         className={itemClass(active)}

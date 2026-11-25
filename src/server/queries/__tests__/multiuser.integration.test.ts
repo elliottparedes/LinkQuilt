@@ -130,7 +130,7 @@ describe("[integration] ownership matrix at the query + predicate level", () => 
     { actor: "member-own", role: "owner", userId: "u2", pageUserId: "u2", ok: true },
     { actor: "member-other", role: "owner", userId: "u2", pageUserId: "u1", ok: false },
     { actor: "member-legacy", role: "owner", userId: "u2", pageUserId: null, ok: false },
-    { actor: "admin-any", role: "admin", userId: "u1", pageUserId: "u2", ok: true },
+    { actor: "admin-other", role: "admin", userId: "u1", pageUserId: "u2", ok: false },
     { actor: "admin-legacy", role: "admin", userId: "u1", pageUserId: null, ok: true },
   ])("$actor → canAccessPage=$ok", async ({ actor, role, userId, pageUserId, ok }) => {
     const [u1, u2] = await Promise.all([
@@ -167,7 +167,7 @@ describe("[integration] ownership matrix at the query + predicate level", () => 
 
     expect(canAccessPage({ userId: admin.id, role: undefined }, page)).toBe(false);
     expect(canAccessPage({ userId: admin.id, role: "superuser" }, page)).toBe(false);
-    expect(canAccessPage({ userId: admin.id, role: "admin" }, page)).toBe(true);
+    expect(canAccessPage({ userId: admin.id, role: "admin" }, page)).toBe(false);
     // legacy rows stay admin-only even for a real owner
     expect(canAccessPage({ userId: owner.id, role: "owner" }, legacy)).toBe(false);
     expect(canAccessPage({ userId: admin.id, role: "admin" }, legacy)).toBe(true);

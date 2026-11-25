@@ -16,6 +16,7 @@ import { maybeRunScheduledBackup, getBackupOverview } from "@/server/backup-sche
 import { formatTimeOfDay } from "@/lib/backup-schedule";
 import { parseQrStyle } from "@/lib/qr-style";
 import { redirect } from "next/navigation";
+import { canEditPage } from "@/lib/ownership";
 import { getSession } from "@/lib/auth";
 import { getAdminPage } from "@/server/queries/admin-pages";
 import { getUserById } from "@/server/queries";
@@ -62,6 +63,8 @@ export default async function SettingsPage({
   const { caps } = await getCapabilitiesForUser(session.userId);
   const canManageInstance = caps.manageInstance;
   const activePage = await getAdminPage(caps, session.userId, pageParam);
+
+  const editable = canEditPage(caps, session, activePage);
 
   const [themes, active, retentionDays, consentText, subscribers, searchEngineHidden, abAutoPromote] = await Promise.all([
     getAllThemes(),
@@ -150,9 +153,9 @@ export default async function SettingsPage({
       </div>
 
       <SettingsTabs
-        allowed={canManageInstance ? undefined : ["security"]}
+        allowed={canManageInstance ? (editable ? undefined : ["security", "data"]) : ["security"]}
         tabs={{
-          ...(canManageInstance ? {
+          ...(canManageInstance && editable ? {
           general: (
             <GeneralTab
               pageId={activePage?.id}
@@ -272,7 +275,7 @@ export default async function SettingsPage({
           ...(canManageInstance ? {
           data: (
             <div className="flex flex-col gap-4">
-              <MigrationWizard pageId={activePage?.id ?? 0} />
+              {activePage && editable && <MigrationWizard pageId={activePage.id} />}
               <SubscribersCard
                 subscribers={subscribers}
                 emailCaptureEnabled={activePage?.emailCapture ?? false}

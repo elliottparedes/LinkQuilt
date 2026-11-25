@@ -75,6 +75,18 @@ describe("applyTheme", () => {
     expect(await applyTheme({ pageId: page.id, themeId: preset.id })).toMatchObject({ errorCode: "unauthorized" });
   });
 
+  it("rejects an admin applying or removing a theme on another account’s page", async () => {
+    const admin = (await db.insert(users).values({ username: "theme-admin", passwordHash: "seed", role: "admin" }).returning())[0];
+    const theme = await seedTheme({ isActive: false, ownerId: member.id });
+    const page = await seedPage({ slug: "themed-member", userId: member.id, themeId: theme.id });
+    const preset = await seedTheme({ name: "Replacement", isPreset: true });
+    signIn(admin);
+
+    expect(await applyTheme({ pageId: page.id, themeId: preset.id })).toMatchObject({ errorCode: "forbidden" });
+    expect(await deleteCustomTheme(theme.id)).toMatchObject({ errorCode: "forbidden" });
+    expect((await readPage(page.id))?.themeId).toBe(theme.id);
+  });
+
   it("saves a private copy, keeps it in the library after switching, and updates it in place", async () => {
     const preset = (await seedTheme({ isPreset: true, primaryColor: "#111111" }));
     const first = (await seedPage({ slug: "first", userId: member.id, themeId: preset.id }));

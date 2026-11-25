@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import { demoBlock } from "@/lib/demo";
-import { getDefaultPage, getPageById, createLink, updatePage } from "@/server/queries";
+import { canEditPage } from "@/lib/ownership";
+import { getCapabilitiesForUser, getDefaultPage, getPageById, createLink, updatePage } from "@/server/queries";
 import {
   extractFromUrl,
   extractFromFileContent,
@@ -143,6 +144,9 @@ export async function confirmImport(
   const pageId = pageIdRaw ? Number(pageIdRaw) : undefined;
   const page = pageId ? await getPageById(pageId) : await getDefaultPage();
   if (!page) return { success: false, error: "Target page not found" };
+
+  const { caps } = await getCapabilitiesForUser(session.userId);
+  if (!canEditPage(caps, session, page)) return { success: false, error: "You do not have access to this page" };
 
   // Parse the selected links from the form.
   const linksJson = String(formData.get("links") || "[]");

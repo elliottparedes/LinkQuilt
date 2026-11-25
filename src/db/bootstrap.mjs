@@ -44,7 +44,7 @@ export async function initializePostgres(client, hasLegacyDatabase) {
   try {
     await client.query(`
       INSERT INTO roles (name, is_builtin, pages_limit, pages_visibility, can_manage_accounts, can_manage_instance)
-      VALUES ('Admin', true, NULL, 'manage_all', true, true), ('Member', true, 5, 'own', false, false)
+      VALUES ('Admin', true, NULL, 'view_all', true, true), ('Member', true, 5, 'own', false, false)
       ON CONFLICT (name) DO NOTHING
     `);
     await client.query(`

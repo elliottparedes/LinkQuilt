@@ -209,9 +209,9 @@ const runDeleteTheme = withAction("deleteCustomTheme", async (id: number): Promi
     }
     if (theme.isActive) return validationError("Cannot delete the active theme");
     if (theme.isPreset) return validationError("Built-in themes cannot be deleted");
-    if (!actor.caps.manageInstance && (await tx.select({ id: pages.id }).from(pages).where(and(
+    if ((await tx.select({ id: pages.id }).from(pages).where(and(
       eq(pages.themeId, id),
-      or(ne(pages.userId, actor.userId), isNull(pages.userId)),
+      or(ne(pages.userId, actor.userId), actor.caps.manageAccounts && actor.caps.manageInstance ? undefined : isNull(pages.userId)),
     )).limit(1))[0]) {
       return forbiddenError();
     }

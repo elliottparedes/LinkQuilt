@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * Four actors × three page kinds. This is the security surface a reviewer
  * should read first: user B must never be able to read-mutate user A's page
  * or links, legacy single-user rows (userId NULL) stay admin-only, and the
- * admin passes everywhere. The query-level mirror of this matrix lives in
+ * admin can maintain ownerless legacy pages. The query-level mirror of this matrix lives in
  * multiuser.integration.test.ts.
  */
 
@@ -145,17 +145,24 @@ describe("ownership matrix — page actions", () => {
     expect(mocks.updatePage).not.toHaveBeenCalled();
   });
 
-  it("admin CAN update any page, including legacy rows", async () => {
+  it("admin can update owned and legacy pages but cannot update another account’s page", async () => {
     asAdmin();
     expect((await updatePageAction(fd({ pageId: "10", title: "x" }))).success).toBe(true);
     expect((await updatePageAction(fd({ pageId: "30", title: "x" }))).success).toBe(true);
+    expect(await updatePageAction(fd({ pageId: "20", title: "x" }))).toMatchObject({ errorCode: "forbidden" });
+    expect(mocks.updatePage).toHaveBeenCalledTimes(2);
   });
 
-  it("admin CAN delete a member's page", async () => {
+  it("cannot move links from an owned page to another account's default page", async () => {
+    expect(await deletePageAction(fd({ pageId: "20", mode: "keep" }))).toMatchObject({ errorCode: "forbidden" });
+    expect(mocks.deletePage).not.toHaveBeenCalled();
+  });
+
+  it("admin cannot delete a member's page", async () => {
     asAdmin();
     const res = await deletePageAction(fd({ pageId: "20", mode: "wipe" }));
-    expect(res.success).toBe(true);
-    expect(mocks.deletePage).toHaveBeenCalled();
+    expect(res).toMatchObject({ errorCode: "forbidden" });
+    expect(mocks.deletePage).not.toHaveBeenCalled();
   });
 });
 
@@ -186,11 +193,14 @@ describe("ownership matrix — link actions", () => {
     expect(mocks.createLink).toHaveBeenCalled();
   });
 
-  it("admin CAN add a link to any page", async () => {
+  it("admin can add a link only to an editable page", async () => {
     asAdmin();
     const res = await createLink(linkFd({ pageId: "10", title: "Link", url: "https://example.com" }));
     expect(res.success).toBe(true);
     expect(mocks.createLink).toHaveBeenCalled();
+    expect(await createLink(linkFd({ pageId: "20", title: "Link", url: "https://example.com" })))
+      .toMatchObject({ errorCode: "forbidden" });
+    expect(mocks.createLink).toHaveBeenCalledTimes(1);
   });
 
   it("member B CANNOT update a link that lives on member A's page (page derived from the link, not the client)", async () => {

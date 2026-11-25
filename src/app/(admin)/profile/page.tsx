@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getOidcIdentitiesForUser, getCapabilitiesForUser, type SocialLink } from "@/server/queries";
+import { canEditPage } from "@/lib/ownership";
 import { getSession } from "@/lib/auth";
 import { getAdminPage } from "@/server/queries/admin-pages";
 import { oidcAccountLinkingSupported } from "@/server/actions/oidc";
@@ -18,6 +19,7 @@ export default async function ProfilePage({
   if (!session) redirect("/login");
   const { caps } = await getCapabilitiesForUser(session.userId);
   const activePage = await getAdminPage(caps, session.userId, pageParam);
+  if (activePage && !canEditPage(caps, session, activePage)) redirect(`/dashboard?page=${activePage.id}`);
 
   let socialLinks: SocialLink[] = [];
   try {

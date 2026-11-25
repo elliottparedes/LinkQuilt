@@ -11,7 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PreviewButton } from "@/components/admin/PreviewPane";
+import { PreviewButton, usePreview } from "@/components/admin/PreviewPane";
 import { useTranslations } from "next-intl";
 import type { Messages } from "@/locales/en";
 
@@ -40,6 +40,7 @@ export function MobileTabBar() {
   const t = useTranslations("nav");
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { activePage } = usePreview();
   const pageParam = searchParams.get("page");
   const query = pageParam ? `?page=${pageParam}` : "";
 
@@ -47,11 +48,12 @@ export function MobileTabBar() {
     pathname === href || pathname.startsWith(`${href}/`);
 
   const renderTab = (tab: DockTab) => {
+    const pageQuery = activePage?.canEdit === false && tab.href !== "/dashboard" ? "" : query;
     const active = isActive(tab.href);
     return (
       <Link
         key={tab.href}
-        href={`${tab.href}${query}`}
+        href={`${tab.href}${pageQuery}`}
         aria-current={active ? "page" : undefined}
         className={cn(
           "relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium transition-colors",

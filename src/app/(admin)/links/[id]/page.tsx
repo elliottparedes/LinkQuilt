@@ -2,11 +2,15 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { getLocale } from "@/i18n/server";
 import { formatNumber } from "@/i18n/format";
-import { notFound } from "next/navigation";
+import { getSession } from "@/lib/auth";
+import { canEditPage, canViewPage } from "@/lib/ownership";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, MousePointerClick } from "lucide-react";
 import {
   getAnalyticsRetentionDays,
   getLinkStats,
+  getPageById,
+  getCapabilitiesForUser,
   type AnalyticsRange,
 } from "@/server/queries";
 import {
@@ -35,6 +39,8 @@ export default async function LinkDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ range?: string }>;
 }) {
+  const session = await getSession();
+  if (!session) redirect("/login");
   const t = await getTranslations("linkDetail");
   const locale = await getLocale();
   const [{ id: idParam }, { range: rangeParam }] = await Promise.all([
@@ -52,6 +58,10 @@ export default async function LinkDetailPage({
   if (!stats) notFound();
 
   const { link, totalClicks, clicksPerDay, topReferrers, variants } = stats;
+  const [{ caps }, page] = await Promise.all([getCapabilitiesForUser(session.userId), getPageById(link.pageId)]);
+  if (!canViewPage(caps, session, page)) notFound();
+  const editable = canEditPage(caps, session, page);
+  const backLabel = editable ? t("backToLinks") : (await getTranslations("nav"))("dashboard");
   // #81: per-variant breakdown card — only when the link carries a valid
   // config (URL links; malformed JSON degrades to no card).
   const abConfig = link.type === "url" ? parseAbConfig(link.abConfig ?? null) : null;
@@ -60,10 +70,10 @@ export default async function LinkDetailPage({
     <div className="flex flex-col gap-6">
       <div>
         <Link
-          href="/links"
+          href={`${editable ? "/links" : "/dashboard"}?page=${link.pageId}`}
           className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ArrowLeft className="size-4" />{t("backToLinks")}</Link>
+          <ArrowLeft className="size-4" />{backLabel}</Link>
         <h1 className="font-heading text-2xl font-semibold tracking-tight">
           {link.title}
         </h1>
@@ -93,7 +103,7 @@ export default async function LinkDetailPage({
 
       {/* #81: per-variant breakdown + lifecycle controls (URL links with a
           test; archived configs render as read-only history). */}
-      {abConfig ? (
+      {abConfig && editable ? (
         <AbTestCard
           linkId={link.id}
           config={abConfig}

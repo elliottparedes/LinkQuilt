@@ -6,6 +6,7 @@ import {
   getActiveTheme,
   getCapabilitiesForUser,
 } from "@/server/queries";
+import { canEditPage } from "@/lib/ownership";
 import { getSession } from "@/lib/auth";
 import { getAdminPage } from "@/server/queries/admin-pages";
 import { LinksManager } from "./links-manager";
@@ -22,6 +23,7 @@ export default async function LinksPage({
   if (!session) redirect("/login");
   const { caps } = await getCapabilitiesForUser(session.userId);
   const activePage = await getAdminPage(caps, session.userId, pageParam);
+  if (activePage && !canEditPage(caps, session, activePage)) redirect(`/dashboard?page=${activePage.id}`);
   if (!activePage) redirect("/dashboard");
 
   // The add/edit link sheet renders a live card preview with the page's REAL

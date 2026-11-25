@@ -23,7 +23,6 @@ import {
   getPageByOwner,
   setPageOwner,
   updatePage,
-  getPageById,
   provisionAccountPage,
   getRoleById,
   listInstanceAdminIds,
@@ -31,7 +30,7 @@ import {
   getSetting,
   updateSetting,
 } from "@/server/queries";
-import { requireAccountsAdmin, requireInstanceAdmin } from "@/server/access";
+import { assertPageAccess, requireAccountsAdmin, requireInstanceAdmin } from "@/server/access";
 import { recordAudit } from "@/server/audit";
 import { requirePasswordConfirmation } from "@/server/actions/confirm";
 import { normalizeSlug, slugError, SLUG_ERRORS } from "@/lib/link-slug";
@@ -366,8 +365,8 @@ export async function reassignPageSlugAction(formData: FormData): Promise<Action
   // in the app — but a fully-symbol input normalizes to "" and must be
   // rejected, never silently clear the page's public address.
   if (!norm) return validationError("Slug is required");
-  const page = await getPageById(pageId);
-  if (!page) return notFoundError("Page not found");
+  const { page, error } = await assertPageAccess(pageId);
+  if (error) return error;
   const nextSlug = replacePageSlug(page.slug, norm);
   if (page.slug.toLowerCase() === nextSlug) {
     return { success: true }; // no-op

@@ -36,7 +36,7 @@ export const users = pgTable("users", {
 // ─── Customizable roles (#124 2B) ──────────────────────
 // A role sets what its members may do instance-wide. pagesLimit NULL =
 // unlimited. pagesVisibility: 'own' (only their pages), 'view_all' (read any
-// page), 'manage_all' (edit any page). canManageAccounts/canManageInstance
+// page), 'manage_all' (legacy alias for 'view_all'). canManageAccounts/canManageInstance
 // gate the /accounts + settings surfaces. Admin/Member ship as builtins
 // (is_builtin) — the actions refuse to delete or strip them.
 export const roles = pgTable("roles", {

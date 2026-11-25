@@ -5,8 +5,10 @@ import {
   type ActionError,
   unauthorizedError,
   forbiddenError,
+  notFoundError,
 } from "@/lib/errors";
-import { getCapabilitiesForUser } from "@/server/queries";
+import { canEditPage } from "@/lib/ownership";
+import { getCapabilitiesForUser, getPageById } from "@/server/queries";
 
 /**
  * #124 multi-user capability gates for server actions.
@@ -56,4 +58,18 @@ export async function requireInstanceAdminOrThrow(): Promise<void> {
   if (denied && !denied.success) {
     throw new Error(denied.errorCode === "forbidden" ? "Forbidden" : "Unauthorized");
   }
+}
+
+export async function assertPageAccess(
+  pageId: number,
+): Promise<{ page: NonNullable<Awaited<ReturnType<typeof getPageById>>>; error: null; canEdit: (target: Parameters<typeof canEditPage>[2]) => boolean } | { page: null; error: ActionError }> {
+  const session = await getSession();
+  if (!session) return { page: null, error: unauthorizedError() };
+  const page = await getPageById(pageId);
+  if (!page) return { page: null, error: notFoundError("Page not found") };
+  const { caps } = await getCapabilitiesForUser(session.userId);
+  if (!canEditPage(caps, session, page)) {
+    return { page: null, error: forbiddenError("You do not have access to this page") };
+  }
+  return { page, error: null, canEdit: (target: Parameters<typeof canEditPage>[2]) => canEditPage(caps, session, target) };
 }

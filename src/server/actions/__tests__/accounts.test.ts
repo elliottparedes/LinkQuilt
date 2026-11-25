@@ -454,29 +454,35 @@ describe("deleteAccountAction", () => {
 // ─────────────────────────── reassignPageSlugAction ───────────────────────────
 
 describe("reassignPageSlugAction", () => {
-  it("reassigns a page slug", async () => {
-    mocks.getPageById.mockResolvedValue({ id: 30, slug: "old-slug", userId: 3 });
+  it("denies an admin renaming another account’s page", async () => {
+    mocks.getPageById.mockResolvedValue({ id: 30, slug: "member", userId: 3 });
+    expect(await reassignPageSlugAction(fd({ pageId: "30", slug: "new-slug" }))).toMatchObject({ errorCode: "forbidden" });
+    expect(mocks.updatePage).not.toHaveBeenCalled();
+  });
+
+  it("reassigns an owned page slug", async () => {
+    mocks.getPageById.mockResolvedValue({ id: 30, slug: "old-slug", userId: 1 });
     const res = await reassignPageSlugAction(fd({ pageId: "30", slug: "new-slug" }));
     expect(res.success).toBe(true);
     expect(mocks.updatePage).toHaveBeenCalledWith(30, { slug: "new-slug" });
   });
 
   it("no-ops when the slug is unchanged (case-insensitive)", async () => {
-    mocks.getPageById.mockResolvedValue({ id: 30, slug: "New-Slug", userId: 3 });
+    mocks.getPageById.mockResolvedValue({ id: 30, slug: "New-Slug", userId: 1 });
     const res = await reassignPageSlugAction(fd({ pageId: "30", slug: "new-slug" }));
     expect(res.success).toBe(true);
     expect(mocks.updatePage).not.toHaveBeenCalled();
   });
 
   it("sanitizes the slug like every slug input in the app", async () => {
-    mocks.getPageById.mockResolvedValue({ id: 30, slug: "old-slug", userId: 3 });
+    mocks.getPageById.mockResolvedValue({ id: 30, slug: "old-slug", userId: 1 });
     const res = await reassignPageSlugAction(fd({ pageId: "30", slug: "New Slug!" }));
     expect(res.success).toBe(true);
     expect(mocks.updatePage).toHaveBeenCalledWith(30, { slug: "new-slug" });
   });
 
   it("rejects a slug that normalizes to empty", async () => {
-    mocks.getPageById.mockResolvedValue({ id: 30, slug: "old-slug", userId: 3 });
+    mocks.getPageById.mockResolvedValue({ id: 30, slug: "old-slug", userId: 1 });
     const res = await reassignPageSlugAction(fd({ pageId: "30", slug: "!!!" }));
     expect(res.success).toBe(false);
     expect(mocks.updatePage).not.toHaveBeenCalled();
