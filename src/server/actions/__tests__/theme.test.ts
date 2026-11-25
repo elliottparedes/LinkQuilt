@@ -5,6 +5,8 @@ import { db, seedPage, seedTheme } from "../../queries/__tests__/integration-set
 import { pages, themes, users } from "@/db/schema";
 import { getSession } from "@/lib/auth";
 import { applyTheme, deleteCustomTheme, duplicateActiveTheme } from "@/server/actions/theme";
+import { compileThemeCss } from "@/server/compile-theme-css";
+import { oceanSource } from "@/lib/custom-theme";
 import { getThemeLibrary } from "@/server/queries";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -39,6 +41,23 @@ beforeEach(async () => {
 });
 
 describe("applyTheme", () => {
+  it("publishes a compiled Ocean design to an owned copy and preserves it on failed edits", async () => {
+    const preset = await seedTheme({ isPreset: true });
+    const page = await seedPage({ slug: "surf", userId: member.id });
+    const compiled = compileThemeCss(oceanSource);
+    if ("error" in compiled) throw new Error(compiled.error);
+    const input = { themeId: preset.id, pageId: page.id, fields: compiled, copyName: "Ocean" };
+    const saved = await applyTheme(input);
+    if (!saved.success) throw new Error(saved.error);
+    expect((await readTheme(saved.themeId))?.design).toBe(compiled.design);
+    expect((await readTheme(preset.id))?.design).toBe("");
+    const edit = { pageId: page.id, themeId: saved.themeId };
+    expect((await applyTheme({ ...edit, fields: { design: "invalid" } })).success).toBe(false);
+    signIn(other);
+    expect((await applyTheme({ ...edit, fields: { design: "" } })).success).toBe(false);
+    expect((await readTheme(saved.themeId))?.design).toBe(compiled.design);
+  });
+
   it("applies a preset without allocating a custom theme and denies access across accounts", async () => {
     const preset = (await seedTheme({ isPreset: true }));
     const page = (await seedPage({ slug: "member", userId: member.id }));

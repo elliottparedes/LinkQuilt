@@ -15,6 +15,13 @@
       "when": 1795530000000,
       "tag": "0001_member_subpages",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795531000000,
+      "tag": "0002_theme_design",
+      "breakpoints": true
     }
   ]
 }

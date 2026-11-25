@@ -9,6 +9,7 @@
  * rows (before the schema expansion) resolve correctly.
  */
 
+import { readDesign } from "./custom-theme";
 import { truthy } from "@/lib/utils";
 import {
   CUSTOM_FONT_PREFIX,
@@ -45,6 +46,7 @@ export const FONT_REGISTRY: Record<string, string> = {
 
 /** Accepts any partial theme record (old or new schema). */
 export interface ThemeInput {
+  design?: string | null;
   // Colors
   primaryColor?: string | null;
   secondaryColor?: string | null;
@@ -592,6 +594,8 @@ export function resolveThemeTokens(
     "--lb-aurora-blob-2": secondary,
   };
 
+  if (theme.design) Object.assign(cssVars, readDesign(theme.design)?.vars);
+
   // Keyframes for animated gradient backgrounds
   let keyframes = "";
   const bgType = str(theme.backgroundType, "gradient");
@@ -644,7 +648,8 @@ const NIGHT_BASE = "#0a0820";
  * tile it pins the repeat origin (subtle, but keeps the mental model one).
  */
 export function mediaBackgroundCss(theme: ThemeBackgroundInput): string {
-  const url = `url('${theme.backgroundImageUrl}')`;
+  const escapedUrl = (theme.backgroundImageUrl ?? "").replace(/['"\\<>\r\n]/g, c => "%" + c.charCodeAt(0).toString(16).padStart(2, "0"));
+  const url = `url('${escapedUrl}')`;
   const fit = theme.backgroundFit || "cover";
   const pos = theme.backgroundPosition || "50% 50%";
   // Optional per-upload zoom (Spec: Image-Positioning): scales the sized

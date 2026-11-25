@@ -22,8 +22,12 @@ import {
 export function VideoBackground({
   theme,
   adjustment,
+  controlled = false,
+  fallback,
 }: {
   theme: ThemeBackgroundInput;
+  controlled?: boolean;
+  fallback?: string;
   /** Per-upload override (Spec: Image-Positioning): fit + focus; no zoom for video. */
   adjustment?: { fit?: string | null; posX?: number | null; posY?: number | null } | null;
 }) {
@@ -59,15 +63,15 @@ export function VideoBackground({
         // while the video loads and as the permanent fallback when it can't
         // play (dead URL, offline, saveData pause). Replaces the old
         // hardcoded night-purple letterbox.
-        background: resolveBackground(theme),
+        background: fallback ?? resolveBackground(theme),
       }}
     >
       <video
-        autoPlay
+        autoPlay={!controlled}
         muted
         loop
         playsInline
-        preload="metadata"
+        preload={controlled ? "none" : "metadata"}
         src={src}
         style={{
           position: "absolute",
@@ -80,12 +84,12 @@ export function VideoBackground({
       />
       {overlay}
       {/* Slow-connection fallback: swap <video> for a static poster frame. */}
-      <script
+      {!controlled && <script
         type="text/javascript"
         dangerouslySetInnerHTML={{
-          __html: `try{var c=navigator.connection;if(c&&(c.saveData||/2g/.test(c.effectiveType||""))){var v=document.currentScript.parentElement.querySelector("video");if(v){v.pause();v.removeAttribute("src");v.load?v.load():0;}}}}catch(e){}`,
+          __html: `try{var c=navigator.connection;if(c&&(c.saveData||/2g/.test(c.effectiveType||""))){var v=document.currentScript.parentElement.querySelector("video");if(v){v.pause();v.removeAttribute("src");v.load?v.load():0;}}}catch(e){}`,
         }}
-      />
+      />}
     </div>
   );
 }

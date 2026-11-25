@@ -21,6 +21,7 @@ import type { CustomFontMeta } from "@/lib/custom-fonts";
 import { sameBackgroundMedia } from "@/lib/theme-editing";
 import { applyTheme, deleteCustomTheme, duplicateActiveTheme } from "@/server/actions/theme";
 import type { ThemeRow } from "@/server/queries";
+import { CustomCssEditor } from "./components/custom-css-editor";
 import { PresetGallery } from "./components/preset-gallery";
 import { ThemeActions } from "./components/theme-actions";
 import {
@@ -31,6 +32,7 @@ import {
 } from "./components/theme-customizer";
 
 type ThemeDraft = {
+  source?: string;
   fields: Partial<CustomizerState>;
   background?: Pick<CustomizerState, "backgroundType" | "backgroundImageUrl"> & {
     value: ImagePositionPickerValue | null;
@@ -113,9 +115,9 @@ export function ThemeManager({
   const bgAdjustment = draftBackground !== undefined ? draftBackground
     : state && active && sameBackgroundMedia(state, active) ? pageBgAdjustment : null;
   const hasThemeEdits = Object.keys(draft?.fields ?? {}).length > 0;
-  const dirty = hasThemeEdits || draftBackground !== undefined;
+  const dirty = hasThemeEdits || draftBackground !== undefined || draft?.source !== undefined;
   const isLive = selected?.id === active?.id;
-  const canPublish = canApply && (selected?.isPreset ? !isLive && !dirty : !isLive || dirty);
+  const canPublish = canApply && draft?.source === undefined && (selected?.isPreset ? !isLive && !dirty : !isLive || dirty);
   const sections: Record<GallerySection, ThemeRow[]> = { presets: [], mine: [], other: [] };
   for (const theme of themes) {
     const category = theme.isPreset ? "presets" : theme.ownerId === userId ? "mine" : "other";
@@ -147,7 +149,7 @@ export function ThemeManager({
   function updateDraft(next: ThemeDraft) {
     if (!selected || busy.current) return;
     const drafts = { ...session.drafts };
-    if (Object.keys(next.fields).length || next.background) drafts[selected.id] = next;
+    if (Object.keys(next.fields).length || next.background || next.source !== undefined) drafts[selected.id] = next;
     else delete drafts[selected.id];
     writeSession({ ...session, drafts });
   }
@@ -166,6 +168,7 @@ export function ThemeManager({
   function updateBackground(value: ImagePositionPickerValue | null) {
     if (!state) return;
     updateDraft({
+      ...draft,
       fields: draft?.fields ?? {},
       background: {
         backgroundType: state.backgroundType,
@@ -317,6 +320,15 @@ export function ThemeManager({
       {copyDialog === null && deleteTarget === null ? errorMessage : null}
       {selected && state ? (
         <ThemeCustomizer
+          key={selected.id}
+          cssEditor={<CustomCssEditor design={state.design} source={draft?.source}
+            onEdit={source => updateDraft({ ...draft, fields: draft?.fields ?? {}, source })}
+            onValidated={design => {
+              const fields = { ...draft?.fields };
+              if (design === initial?.design) delete fields.design;
+              else fields.design = design;
+              updateDraft({ ...draft, fields, source: undefined });
+            }} />}
           name={selected.name}
           state={state}
           set={updateFields}

@@ -296,6 +296,7 @@ export const links = pgTable("links", {
 
 // ─── Themes ───────────────────────────────────────────
 export const themes = pgTable("themes", {
+  design: text("design").notNull().default(""),
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   name: text("name").notNull(),
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { acquireBackupLock, releaseBackupLock } from "@/lib/backup-lock";
-import { sanitizeThemeFields } from "@/lib/theme-schema";
+import { designSchema, sanitizeThemeFields } from "@/lib/theme-schema";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -40,6 +40,7 @@ const exportableThemeSchema = z.object({
   version: z.literal(1),
   app: z.literal("linkbreeze"),
   kind: z.literal("theme"),
+  design: designSchema.optional().default(""),
   name: z.string().min(1).max(120),
   // Background
   backgroundType: z.string().max(60),
@@ -245,6 +246,7 @@ export async function exportTheme(id: number): Promise<ExportableTheme> {
     app: "linkbreeze",
     kind: "theme",
     name: theme.name,
+    design: theme.design,
     backgroundType: theme.backgroundType,
     backgroundValue: theme.backgroundValue,
     backgroundAngle: theme.backgroundAngle,
@@ -394,6 +396,7 @@ export async function importTheme(json: string): Promise<ActionResult> {
 
   await db.insert(themes).values({
     name: t.name,
+    design: t.design,
     ownerId: session.userId,
     backgroundType: t.backgroundType,
     backgroundValue: t.backgroundValue,

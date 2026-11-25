@@ -1,4 +1,5 @@
 import * as React from "react";
+import { designBackground, readDesign } from "@/lib/custom-theme";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getPageBySlug, getActiveLinks, getAnalyticsRetentionDays } from "@/server/queries";
@@ -75,6 +76,7 @@ export default async function PrivacyPage({
   const themeInput: ThemeInput = theme ?? {};
 
   const useAurora = isAnimatedAurora(themeInput);
+  const design = theme?.design ? readDesign(theme.design) : null;
   const background = resolveBackground(themeInput);
 
   // Uploaded fonts (#82): same resolution as the public page — both the
@@ -126,7 +128,7 @@ export default async function PrivacyPage({
       <style dangerouslySetInnerHTML={{ __html: themeStyleBlock }} />
       <main
         style={{
-          background: useAurora ? undefined : background,
+          background: designBackground(design, useAurora ? undefined : background),
           color: "var(--lb-text)",
           fontFamily: "var(--lb-font)",
           minHeight: "100vh",

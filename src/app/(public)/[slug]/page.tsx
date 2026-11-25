@@ -30,6 +30,8 @@ import { EmailCapture } from "@/components/public/EmailCapture";
 import { SectionHeader } from "@/components/public/SectionHeader";
 import { getSetting } from "@/server/queries";
 import { SocialIcons } from "@/components/public/SocialIcons";
+import { ThemeScene } from "@/components/public/ThemeScene";
+import { designBackground, hasScene, readDesign } from "@/lib/custom-theme";
 import { ShareBlock } from "@/components/public/ShareBlock";
 import { parseGoogleCreds } from "@/lib/wallet/google-pass";
 import { parseAppleCreds } from "@/lib/wallet/apple-pass";
@@ -295,6 +297,7 @@ export default async function PublicPage({
             : {}),
         } as ThemeInput;
   const background = resolveBackground(themeInputWithBg);
+  const design = theme?.design ? readDesign(theme.design) : null;
 
   const themeStyleBlock = buildThemeStyleBlock(themeInput, {
     customFonts: customFontLookup,
@@ -354,6 +357,8 @@ export default async function PublicPage({
       {useAurora ? <AuroraBackground /> : null}
       {useVideo ? (
         <VideoBackground
+          controlled={!!design}
+          fallback={designBackground(design)}
           theme={themeInput}
           adjustment={{
             fit: page.backgroundFitOverride,
@@ -378,8 +383,10 @@ export default async function PublicPage({
       </a>
       <main
         id="lb-main"
+        data-theme-shadow={!!(design?.vars["--lb-shadow-color"] || design?.vars["--lb-shadow-blur"])}
+        data-theme-glow={!!design?.vars["--lb-hover-glow"]}
         style={{
-          background: useAurora || useVideo ? undefined : background,
+          background: useVideo ? undefined : designBackground(design, useAurora ? undefined : background),
           color: "var(--lb-text)",
           fontFamily: "var(--lb-font)",
           minHeight: "100vh",
@@ -388,8 +395,9 @@ export default async function PublicPage({
         className={`relative flex w-full flex-col${themeInput.linkStyle === "pixel" ? " lb-pixel-mode" : ""}${themeInput.linkStyle === "gel" ? " lb-gel-mode" : ""}`}
         data-alignment={themeInput.alignment || "center"}
       >
+      {design && hasScene(design, useVideo) && <ThemeScene design={design} video={useVideo} />}
       <div
-        className="lb-container w-full px-5 pt-12 pb-6 sm:pt-16 sm:pb-8"
+        className={`lb-container w-full px-5 pt-12 pb-6 sm:pt-16 sm:pb-8${design ? " relative" : ""}`}
         style={{
           maxWidth: "var(--lb-container-width)",
           margin: "0 auto",

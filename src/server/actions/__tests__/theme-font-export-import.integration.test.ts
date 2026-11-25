@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import path from "node:path";
+import { eq } from "drizzle-orm";
 
 const fsMocks = vi.hoisted(() => {
   const files = new Map<string, Buffer>();
@@ -106,6 +107,14 @@ describe("[integration] theme export/import with custom fonts (#82)", () => {
         animationType: "lift",
       }));
     themeId = (await db.select().from(schema.themes)).find((t) => t.name === "Export Me")!.id;
+  });
+
+  it("preserves custom effects across file export and import", async () => {
+    const design = JSON.stringify({version: 1, vars: {"--lb-background-effect": "waves"}, layers: {}});
+    const res = await importTheme(JSON.stringify(exportableTheme({name: "Ocean roundtrip", fontFamily: "inter", design})));
+    expect(res.success).toBe(true);
+    const [theme] = await db.select().from(schema.themes).where(eq(schema.themes.name, "Ocean roundtrip"));
+    expect((await exportTheme(theme.id)).design).toBe(design);
   });
 
   it("exportTheme embeds the referenced font's bytes", async () => {

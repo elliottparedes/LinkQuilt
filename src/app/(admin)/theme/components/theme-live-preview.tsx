@@ -1,5 +1,7 @@
 "use client";
 
+import { ThemeScene } from "@/components/public/ThemeScene";
+import { designBackground, hasScene, readDesign } from "@/lib/custom-theme";
 import { useTranslations } from "next-intl";
 
 import * as React from "react";
@@ -63,10 +65,12 @@ const NOISE_URL =
  */
 export function ThemeLivePreview({
   state,
+  previewMode = "desktop",
   customFonts = [],
   bgAdjustment,
 }: {
   state: CustomizerState;
+  previewMode?: string;
   /** Uploaded fonts (#82) so the preview renders the selected custom font. */
   customFonts?: CustomFontMeta[];
   bgAdjustment?: BackgroundAdjustment | null;
@@ -111,6 +115,7 @@ export function ThemeLivePreview({
     };
   }, [theme, customFontsMap]);
 
+  const design = React.useMemo(() => state.design ? readDesign(state.design) : null, [state.design]);
   const fontFaceCss = activeCustomFonts.map((f) => buildFontFaceCss(f)).join("\n");
 
   const cards = React.useMemo(() => {
@@ -140,15 +145,17 @@ export function ThemeLivePreview({
       />
       <div
         id="lb-theme-preview-root"
+        data-theme-shadow={!!(design?.vars["--lb-shadow-color"] || design?.vars["--lb-shadow-blur"])}
+        data-theme-glow={!!design?.vars["--lb-hover-glow"]}
         className={`relative flex h-full w-full flex-col items-center overflow-hidden${theme.linkStyle === "gel" ? " lb-gel-mode" : ""}`}
         style={{
-          background,
+          background: designBackground(design, background),
           fontFamily: "var(--lb-font)",
           color: "var(--lb-text)",
           letterSpacing: "var(--lb-letter-spacing)",
         }}
       >
-        {theme.backgroundType === "aurora" ? (
+        {theme.backgroundType === "aurora" && !designBackground(design) ? (
           <div aria-hidden className="absolute inset-0 overflow-hidden">
             <div
               className="absolute rounded-full"
@@ -181,7 +188,8 @@ export function ThemeLivePreview({
             aria-hidden
             className="absolute inset-0 h-full w-full"
             src={theme.backgroundImageUrl}
-            autoPlay
+            autoPlay={!design}
+            preload={design ? "none" : "metadata"}
             muted
             loop
             playsInline
@@ -209,6 +217,7 @@ export function ThemeLivePreview({
           />
         ) : null}
 
+        {design && hasScene(design, theme.backgroundType === "video") && <ThemeScene design={design} mode={previewMode} preview video={theme.backgroundType === "video"} />}
         <div
           className="relative flex w-full flex-col items-center"
           style={{ paddingTop: 28, paddingBottom: 16, paddingLeft: 20, paddingRight: 20 }}

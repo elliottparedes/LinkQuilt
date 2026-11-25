@@ -1,4 +1,4 @@
-import { sanitizeThemeFields } from "@/lib/theme-schema";
+import { designSchema, sanitizeThemeFields } from "@/lib/theme-schema";
 import { z } from "zod";
 import { db } from "@/db";
 import {
@@ -145,6 +145,7 @@ const themeRowSchema = z.object({
   dividerWidth: z.string().optional(),
   profileLayout: z.string().optional(),
   textAnimation: z.string().optional(),
+  design: designSchema.optional(),
   // Meta
   isActive: z.boolean().optional(),
   isPreset: z.boolean().optional(),

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
+import { compileThemeCss } from "@/server/compile-theme-css";
 import { db } from "@/db";
 import { customFonts, pages, themes } from "@/db/schema";
 import { getSession } from "@/lib/auth";
@@ -34,6 +35,11 @@ import {
   removeTheme,
   themeNameExists,
 } from "@/server/queries";
+
+export async function previewThemeCss(source: string) {
+  if (!(await getSession())) return { error: "Sign in to preview a theme." };
+  return compileThemeCss(source);
+}
 
 const applySchema = z.object({
   themeId: z.number().int().positive(),

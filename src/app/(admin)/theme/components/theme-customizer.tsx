@@ -25,6 +25,7 @@ import type { CustomFontMeta } from "@/lib/custom-fonts";
 
 /** Shape of the controlled customizer state (strings, matching the form fields). */
 export type CustomizerState = {
+  design: string;
   backgroundType: string;
   backgroundValue: string;
   backgroundAngle: string;
@@ -85,6 +86,7 @@ export type BackgroundAdjustment = {
 
 export function stateFromTheme(active: ThemeRow): CustomizerState {
   return {
+    design: active.design ?? "",
     backgroundType: active.backgroundType ?? "gradient",
     backgroundValue: active.backgroundValue ?? "",
     backgroundAngle: active.backgroundAngle ?? "135deg",
@@ -146,12 +148,14 @@ const TABS = [
   { id: "links", label: "tabLinks" },
   { id: "profile", label: "tabProfile" },
   { id: "effects", label: "tabEffects" },
+  { id: "css", label: "Custom CSS" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
 
 export function ThemeCustomizer({
   name,
+  cssEditor,
   state,
   set,
   pending,
@@ -166,6 +170,7 @@ export function ThemeCustomizer({
   onBgAdjustment,
 }: {
   name: string;
+  cssEditor: React.ReactNode;
   state: CustomizerState;
   set: (patch: Partial<CustomizerState>) => void;
   pending: boolean;
@@ -183,6 +188,7 @@ export function ThemeCustomizer({
   onBgAdjustment?: (value: ImagePositionPickerValue | null) => void;
 }) {
   const t = useTranslations("theme");
+  const [previewMode, setPreviewMode] = React.useState("desktop");
   const [tab, setTab] = React.useState<TabId>("background");
 
   return (
@@ -212,7 +218,7 @@ export function ThemeCustomizer({
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                {t(tabDef.label)}
+                {tabDef.id === "css" ? tabDef.label : t(tabDef.label)}
               </button>
             ))}
           </nav> : null}
@@ -254,13 +260,24 @@ export function ThemeCustomizer({
               </>
             ) : null}
             {tab === "profile" ? <ProfileSection s={state} set={set} /> : null}
+            {tab === "css" ? <>
+              {cssEditor}
+              <label className="mt-3 flex items-center gap-2 text-sm">
+                Preview input
+                <select value={previewMode} onChange={e => setPreviewMode(e.target.value)} className="rounded border p-1">
+                  <option value="desktop">Desktop pointer</option>
+                  <option value="touch">Touch</option>
+                  <option value="reduced">Reduced motion</option>
+                </select>
+              </label>
+            </> : null}
             {tab === "effects" ? <EffectsSection s={state} set={set} /> : null}
           </fieldset> : null}
 
           {/* Theme visualizer — sticky on wide screens */}
           <div className="order-2 mx-auto h-[276px] w-[144px] shrink-0 xl:sticky xl:top-20 xl:order-3 xl:h-[460px] xl:w-[268px]">
             <div className="w-[240px] origin-top-left scale-[.6] xl:scale-100">
-              <ThemeLivePreview state={state} customFonts={customFonts} bgAdjustment={bgAdjustment} />
+              <ThemeLivePreview previewMode={previewMode} state={state} customFonts={customFonts} bgAdjustment={bgAdjustment} />
             </div>
           </div>
         </div>

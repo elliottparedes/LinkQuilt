@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readDesign } from "./custom-theme";
 
 /**
  * Theme validation schema — the single source of truth for what the
@@ -8,7 +9,7 @@ import { z } from "zod";
  * by tests without dragging in the "use server" / next/cache runtime.
  */
 
-const colorRegex = /^#[0-9a-fA-F]{3,8}$/;
+const colorRegex = /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i;
 
 /** Accept CSS color strings: hex, rgba(), rgb(), transparent */
 export const cssColor = z
@@ -17,8 +18,7 @@ export const cssColor = z
   .refine(
     (v) =>
       colorRegex.test(v) ||
-      v.startsWith("rgba(") ||
-      v.startsWith("rgb(") ||
+      /^rgba?\([\d.,%\s/]+\)$/i.test(v) ||
       v === "transparent" ||
       v === "none",
     "Invalid color",
@@ -38,7 +38,10 @@ export const safeMediaUrl = z
     "URL must be https://, http://, or a site-relative path",
   );
 
+export const designSchema = z.string().max(12000).refine(v => readDesign(v) !== null, "Invalid custom theme");
+
 export const customSchema = z.object({
+  design: designSchema.optional(),
   // Background
   backgroundType: z
     .enum([
@@ -68,8 +71,8 @@ export const customSchema = z.object({
   // Colors
   primaryColor: cssColor.optional(),
   secondaryColor: cssColor.optional(),
-  cardBackground: z.string().max(60).optional(),
-  cardBorderColor: z.string().max(60).optional(),
+  cardBackground: z.union([cssColor, z.literal("")]).optional(),
+  cardBorderColor: z.union([cssColor, z.literal("")]).optional(),
   textColor: cssColor.optional(),
   mutedTextColor: z.union([cssColor, z.literal("")]).optional(),
   mode: z.enum(["light", "dark"]).optional(),
@@ -118,11 +121,7 @@ export const customSchema = z.object({
   // #87 divider element styling
   dividerStyle: z.enum(["solid", "dashed", "dotted", "gradient"]).optional(),
   /** CSS color, or "" (= inherit the card border color). */
-  dividerColor: z
-    .string()
-    .max(60)
-    .refine((v) => v === "" || colorRegex.test(v) || v.startsWith("rgba(") || v.startsWith("rgb("), "Invalid color")
-    .optional(),
+  dividerColor: z.union([cssColor, z.literal("")]).optional(),
   /** Line thickness in px as a string, 1–8. */
   dividerThickness: z
     .string()
@@ -172,14 +171,7 @@ export function sanitizeThemeFields<T extends Record<string, unknown>>(
       continue;
     }
     if (
-      (key === "backgroundValue" ||
-        key === "backgroundAngle" ||
-        key === "fontFamily" ||
-        key === "cardFontFamily" ||
-        key === "letterSpacing" ||
-        key === "blur" ||
-        key === "radius" ||
-        key === "containerWidth") &&
+      key !== "design" && key !== "backgroundImageUrl" &&
       typeof result.data === "string" &&
       cssContextUnsafe.test(result.data)
     ) {
