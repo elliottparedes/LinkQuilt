@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { oceanSource, readDesign, themeSource, emptyDesign } from "@/lib/custom-theme";
+import { oceanSource, readDesign, themeSource, emptyDesign, themeCssMaxLength } from "@/lib/custom-theme";
 import { previewThemeCss } from "@/server/actions/theme";
 
 export function CustomCssEditor({ design, source, onEdit, onValidated }: {
@@ -43,7 +43,7 @@ export function CustomCssEditor({ design, source, onEdit, onValidated }: {
       <Link className="text-sm underline" href="/theme/guide" target="_blank">CSS guide and AI prompt</Link>
     </div>
     <textarea ref={textarea} id="theme-css-source" className="min-h-64 rounded-md border bg-background p-3 font-mono text-xs" spellCheck={false}
-      maxLength={10000} value={current} onChange={e => edit(e.target.value)} placeholder=":root { --lb-accent: #36cabc; }" />
+      maxLength={themeCssMaxLength} value={current} onChange={e => edit(e.target.value)} placeholder=":root { --lb-accent: #36cabc; }" />
     <div className="flex flex-wrap gap-2">
       <Button type="button" size="sm" onClick={validate} disabled={pending}>{pending ? "Validating…" : "Validate & preview"}</Button>
       <Button type="button" size="sm" variant="outline" onClick={() => edit(oceanSource)}>Load Ocean example</Button>

@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { compileThemeCss } from "@/server/compile-theme-css";
-import { oceanSource, themeSource, readDesign, emptyDesign } from "../custom-theme";
+import { oceanSource, themeSource, readDesign, emptyDesign, themeGuide, themeProperties, layerNames } from "../custom-theme";
 import { buildThemeStyleBlock } from "../theme-tokens";
 
 describe("custom theme CSS", () => {
+  it("documents every accepted property and keyframe layer in the copied AI prompt", () => {
+    const documentedProperties = [...themeGuide.matchAll(/^- (--lb-[\w-]+) \((.+)\) — /gm)]
+      .map(([, name, hint]) => [name, hint]);
+    expect(documentedProperties).toEqual(Object.entries(themeProperties).map(([name, rule]) => [name, rule.hint]));
+    expect([...themeGuide.matchAll(/^- @keyframes (\w+) — /gm)].map(([, name]) => name)).toEqual(layerNames);
+  });
+
   it("round-trips Ocean through the same document used by preview, export and publish", () => {
     const result = compileThemeCss(oceanSource);
     if ("error" in result) throw new Error(result.error);

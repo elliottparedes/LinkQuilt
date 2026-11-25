@@ -1,14 +1,10 @@
 "use client";
 
-import * as React from "react";
 import dynamic from "next/dynamic";
 
 const ViewsChartInner = dynamic(
   () => import("./views-chart-inner").then((m) => m.ViewsChartInner),
-  {
-    ssr: false,
-    loading: () => <div className="h-[200px]" />,
-  },
+  { ssr: false },
 );
 
 interface ChartProps {
@@ -17,5 +13,9 @@ interface ChartProps {
 }
 
 export function ViewsChart(props: ChartProps) {
-  return <ViewsChartInner {...props} />;
+  return (
+    <div className="relative min-h-50 min-w-0 flex-1">
+      <ViewsChartInner {...props} />
+    </div>
+  );
 }

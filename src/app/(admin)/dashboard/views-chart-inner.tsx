@@ -46,7 +46,7 @@ export function ViewsChartInner({ data, locale }: ChartProps) {
   }));
 
   return (
-    <div className="h-full min-h-[200px] w-full">
+    <div className="absolute inset-0">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <defs>

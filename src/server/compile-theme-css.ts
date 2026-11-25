@@ -1,8 +1,10 @@
 import { generate, parse, tokenize, tokenTypes, type CssNode } from "css-tree";
-import { emptyDesign, layerNames, readDesign, themeProperties, validFrameValue, type LayerName, type ThemeFrame } from "@/lib/custom-theme";
+import { emptyDesign, frameCountHint, layerNames, readDesign, themeCssMaxLength, themeProperties, validFrameValue, type LayerName, type ThemeFrame } from "@/lib/custom-theme";
 
 export function compileThemeCss(source: unknown): { design: string } | { error: string } {
-  if (typeof source !== "string" || source.length > 10000) return { error: "Use up to 10,000 characters." };
+  if (typeof source !== "string" || source.length > themeCssMaxLength) {
+    return { error: `Use up to ${themeCssMaxLength.toLocaleString("en-US")} characters.` };
+  }
   if (!source.trim()) return { design: "" };
   let line = 1;
   function fail(node: CssNode, message: string): never {
@@ -43,7 +45,7 @@ export function compileThemeCss(source: unknown): { design: string } | { error: 
       }
       if (node.type !== "Atrule" || node.name !== "keyframes" || !node.prelude || !node.block) fail(node, "Use one :root block and optional named keyframes.");
       const name = generate(node.prelude) as LayerName;
-      if (!layerNames.includes(name) || design.layers[name]) fail(node, "Use mist, light or shimmer once per layer.");
+      if (!layerNames.includes(name) || design.layers[name]) fail(node, `Use each supported layer once (${layerNames.join(", ")}).`);
       const frames: ThemeFrame[] = [];
       for (const step of node.block.children) {
         if (step.type !== "Rule") fail(step, "Expected a percentage keyframe.");
@@ -59,7 +61,7 @@ export function compileThemeCss(source: unknown): { design: string } | { error: 
         frames.push(frame);
       }
       design.layers[name] = frames;
-      if (!readDesign(JSON.stringify(design))) fail(node, "Use 2–8 ascending frames starting at 0% and ending at 100%, each with a value.");
+      if (!readDesign(JSON.stringify(design))) fail(node, frameCountHint);
     }
     if (!root) return { error: "Line 1 — include a :root block." };
     return { design: JSON.stringify(design) };

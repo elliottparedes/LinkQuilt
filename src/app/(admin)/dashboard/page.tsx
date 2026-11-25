@@ -391,7 +391,7 @@ export default async function DashboardPage({
       backupStatus.lastErrorAt > backupStatus.noticeDismissedAt);
 
   return (
-    <div className="flex flex-col gap-4 lg:h-[calc(100dvh-3rem)]">
+    <div className="flex flex-col gap-4 lg:min-h-[calc(100dvh-3rem)]">
       {/* Scheduled backups failing (#83) — dismissible, re-arms on next failure */}
       {canManageInstance && showBackupNotice ? <BackupFailureNotice /> : null}
 
@@ -567,22 +567,15 @@ export default async function DashboardPage({
         </Card>
       </div>
 
-      {/* Middle section: chart fills full width */}
-      <div className="flex min-h-0 flex-1 flex-col gap-2 lg:overflow-hidden">
-        <div className="flex shrink-0 items-center justify-between">
-          <div className="flex flex-col">
-            <span className="font-heading text-base font-medium">
-              {t("viewsOverTime")}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {t("dailyViewsClicks")}
-            </span>
-          </div>
+      <section aria-labelledby="views-over-time" className="flex flex-1 flex-col gap-2">
+        <div>
+          <h2 id="views-over-time" className="font-heading text-base font-medium">
+            {t("viewsOverTime")}
+          </h2>
+          <p className="text-xs text-muted-foreground">{t("dailyViewsClicks")}</p>
         </div>
-        <div className="min-h-0 flex-1">
-          <ViewsChart data={stats.viewsPerDay} locale={locale} />
-        </div>
-      </div>
+        <ViewsChart data={stats.viewsPerDay} locale={locale} />
+      </section>
 
       {/* Bottom row: top links + referrers + devices + countries */}
       <div className="grid shrink-0 gap-3 lg:grid-cols-4">
